@@ -265,11 +265,6 @@ document.addEventListener('DOMContentLoaded', () => {
     renderMemberChips();
   });
 
-  // 프로젝트 키 변경 시 즉각 저장
-  projectKeyInput.addEventListener('input', () => {
-    localStorage.setItem('workflow_project_key', projectKeyInput.value.trim());
-  });
-
   // ==========================================================================
   // 2. 이벤트 리스너 등록
   // ==========================================================================
@@ -384,6 +379,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // ==========================================================================
   // 3. JQL 빌더 로직 및 데이터 가져오기 실행부
   // ==========================================================================
+
+  // 프로젝트 키 변경 시 즉각 저장
+  projectKeyInput.addEventListener('input', () => {
+    localStorage.setItem('workflow_project_key', projectKeyInput.value.trim());
+  });
 
   function buildJql() {
     const projectKey = projectKeyInput.value.trim() || 'PROJ';
@@ -530,6 +530,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
       console.log(`[Jira Fetch] Successfully fetched all ${allIssues.length} tickets.`);
 
+      // 디버깅용: 지라가 돌려준 티켓들의 실제 담당자 프로필 이름 전체 출력
+      console.log('--- [Jira 연동 디버깅] 지라 서버가 반환한 실제 담당자(Assignee) 목록 ---');
+      allIssues.forEach(issue => {
+        const key = issue.key;
+        const disp = issue.fields?.assignee?.displayName || '담당자 미지정';
+        const name = issue.fields?.assignee?.name || 'name 정보 없음';
+        const email = issue.fields?.assignee?.emailAddress || '이메일 없음';
+        console.log(`티켓: ${key} | 지라 프로필 실명: "${disp}" | 시스템 ID: "${name}" | 이메일: ${email}`);
+      });
+      console.log('------------------------------------------------------------------');
+
       // 수집된 모든 티켓 포맷 가공
       const tickets = allIssues.map(issue => {
         return {
@@ -625,8 +636,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 통계 계산
     const total = tickets.length;
-    const done = tickets.filter(t => t.status === 'Done' || t.status === 'Resolved').length;
-    const progress = tickets.filter(t => t.status === 'In Progress').length;
+    const done = tickets.filter(t => getStatusCategory(t.status) === 'Done').length;
+    const progress = tickets.filter(t => getStatusCategory(t.status) === 'In Progress').length;
     const todo = total - done - progress;
 
     // 스탯 바인딩
@@ -672,9 +683,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     ticketTableBody.innerHTML = tickets.map(ticket => {
+      const category = getStatusCategory(ticket.status);
       let statusClass = 'todo';
-      if (ticket.status === 'Done' || ticket.status === 'Resolved') statusClass = 'done';
-      if (ticket.status === 'In Progress') statusClass = 'progress';
+      if (category === 'Done') statusClass = 'done';
+      if (category === 'In Progress') statusClass = 'progress';
 
       return `
         <tr>
@@ -711,9 +723,9 @@ document.addEventListener('DOMContentLoaded', () => {
         md += `## 👤 담당자: ${member}\n\n`;
         
         const memberTickets = tickets.filter(t => t.assignee === member);
-        const completed = memberTickets.filter(t => t.status === 'Done' || t.status === 'Resolved');
-        const progressing = memberTickets.filter(t => t.status === 'In Progress');
-        const todos = memberTickets.filter(t => t.status === 'To Do');
+        const completed = memberTickets.filter(t => getStatusCategory(t.status) === 'Done');
+        const progressing = memberTickets.filter(t => getStatusCategory(t.status) === 'In Progress');
+        const todos = memberTickets.filter(t => getStatusCategory(t.status) === 'To Do');
 
         // 완료 항목
         md += `### 🟢 오늘 완료한 업무 (Done)\n`;
@@ -761,8 +773,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const start = appState.filters.dateStart;
     const end = appState.filters.dateEnd;
     const total = tickets.length;
-    const completedCount = tickets.filter(t => t.status === 'Done' || t.status === 'Resolved').length;
-    const progressingCount = tickets.filter(t => t.status === 'In Progress').length;
+    const completedCount = tickets.filter(t => getStatusCategory(t.status) === 'Done').length;
+    const progressingCount = tickets.filter(t => getStatusCategory(t.status) === 'In Progress').length;
     const todoCount = total - completedCount - progressingCount;
 
     let md = `# 📊 주간 프로젝트 업무 보고서\n\n`;
@@ -793,8 +805,9 @@ document.addEventListener('DOMContentLoaded', () => {
           md += `* 진행한 티켓이 없습니다.\n`;
         } else {
           memberTickets.forEach(t => {
-            const statusIndicator = (t.status === 'Done' || t.status === 'Resolved') ? '✅' : 
-                                    (t.status === 'In Progress') ? '🔄' : '⏱️';
+            const cat = getStatusCategory(t.status);
+            const statusIndicator = (cat === 'Done') ? '✅' : 
+                                    (cat === 'In Progress') ? '🔄' : '⏱️';
             md += `* ${statusIndicator} **[${t.key}]** ${t.summary} (\`${t.status}\`, 업데이트: ${t.updated})\n`;
           });
         }
@@ -940,6 +953,18 @@ document.addEventListener('DOMContentLoaded', () => {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+  }
+
+  // 지라의 다양한 한글/영문 커스텀 상태를 'Done', 'In Progress', 'To Do' 3대 범주로 표준화하는 헬퍼 함수
+  function getStatusCategory(statusName) {
+    const status = (statusName || '').toLowerCase().trim();
+    if (status.includes('done') || status.includes('resolved') || status.includes('완료') || status.includes('closed') || status.includes('성공')) {
+      return 'Done';
+    }
+    if (status.includes('progress') || status.includes('진행') || status.includes('doing') || status.includes('개발') || status.includes('selected') || status.includes('working')) {
+      return 'In Progress';
+    }
+    return 'To Do';
   }
 
   // 애플리케이션 시작
