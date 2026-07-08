@@ -80,15 +80,27 @@ document.addEventListener('DOMContentLoaded', () => {
   // ==========================================================================
   
   function init() {
-    // 날짜 기본값 설정: 시작일(이번 주 월요일), 종료일(오늘)
+    // 날짜 기본값 설정: 시작일(이번 주 월요일), 종료일(이번 주 금요일)
+    const formatDate = (d) => {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
     const today = new Date();
     const currentDay = today.getDay();
+    
     const distanceToMonday = currentDay === 0 ? -6 : 1 - currentDay;
     const monday = new Date(today);
     monday.setDate(today.getDate() + distanceToMonday);
 
-    dateStartInput.value = monday.toISOString().split('T')[0];
-    dateEndInput.value = today.toISOString().split('T')[0];
+    const distanceToFriday = currentDay === 0 ? -2 : 5 - currentDay;
+    const friday = new Date(today);
+    friday.setDate(today.getDate() + distanceToFriday);
+
+    dateStartInput.value = formatDate(monday);
+    dateEndInput.value = formatDate(friday);
 
     // LocalStorage에서 설정 로드
     const savedSettings = localStorage.getItem('workflow_jira_settings');
@@ -223,7 +235,7 @@ document.addEventListener('DOMContentLoaded', () => {
         teamMembersInput.value = members.join(', ');
         localStorage.setItem('workflow_filter_members', teamMembersInput.value);
         renderMemberChips();
-        triggerFetch();
+        buildJql();
       });
       
       teamMemberChips.appendChild(chip);
@@ -263,6 +275,7 @@ document.addEventListener('DOMContentLoaded', () => {
   teamMembersInput.addEventListener('input', () => {
     localStorage.setItem('workflow_filter_members', teamMembersInput.value);
     renderMemberChips();
+    buildJql();
   });
 
   // ==========================================================================
@@ -279,7 +292,7 @@ document.addEventListener('DOMContentLoaded', () => {
     localStorage.setItem('workflow_jira_settings', JSON.stringify(appState.settings));
     alert('설정이 로컬 브라우저에 성공적으로 저장되었습니다.');
     updateConnectionStatusUI();
-    triggerFetch();
+    buildJql();
   });
 
   // API 모드 토글
@@ -294,7 +307,7 @@ document.addEventListener('DOMContentLoaded', () => {
     localStorage.setItem('workflow_jira_settings', JSON.stringify(appState.settings));
 
     updateConnectionStatusUI();
-    triggerFetch();
+    buildJql();
   });
 
   // JQL 복사 버튼
@@ -383,6 +396,15 @@ document.addEventListener('DOMContentLoaded', () => {
   // 프로젝트 키 변경 시 즉각 저장
   projectKeyInput.addEventListener('input', () => {
     localStorage.setItem('workflow_project_key', projectKeyInput.value.trim());
+    buildJql();
+  });
+
+  // 시작일/종료일 변경 시 JQL 업데이트
+  dateStartInput.addEventListener('change', () => {
+    buildJql();
+  });
+  dateEndInput.addEventListener('change', () => {
+    buildJql();
   });
 
   function buildJql() {
@@ -489,7 +511,10 @@ document.addEventListener('DOMContentLoaded', () => {
       while (!isLastPage) {
         // Jira Cloud API Search 엔드포인트 조립 (maxResults와 startAt 포함)
         const targetUrl = `${cleanUrl.replace(/\/$/, '')}/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=key,summary,status,assignee,updated&maxResults=${limit}&startAt=${startAt}`;
-        const apiEndpoint = `http://localhost:8080/?url=${encodeURIComponent(targetUrl)}`;
+        const origin = (window.location.protocol === 'http:' || window.location.protocol === 'https:') 
+          ? window.location.origin 
+          : 'http://localhost:8080';
+        const apiEndpoint = `${origin}/?url=${encodeURIComponent(targetUrl)}`;
         
         console.log(`[Jira Fetch] Fetching page starting at ${startAt}...`);
         const response = await fetch(apiEndpoint, {
