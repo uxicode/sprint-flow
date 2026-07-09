@@ -1,20 +1,22 @@
 {
-  "name": "jira-sprintflow-dashboard",
-  "version": "1.0.0",
-  "description": "Jira API 연동 및 주간/일일 업무 보고서 자동 생성 대시보드",
-  "main": "proxy.js",
+  "name": "next-temp",
+  "version": "0.1.0",
+  "private": true,
   "scripts": {
-    "proxy": "node proxy.js",
-    "web": "npx -y serve -l 3000",
-    "dev": "node proxy.js & npx -y serve -l 3000",
-    "start": "node proxy.js & npx -y serve -l 3000"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
   },
-  "keywords": [
-    "jira",
-    "dashboard",
-    "cors-proxy",
-    "markdown-generator"
-  ],
-  "author": "",
-  "license": "ISC"
+  "dependencies": {
+    "next": "16.2.10",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.10",
+    "tailwindcss": "^4"
+  }
 }

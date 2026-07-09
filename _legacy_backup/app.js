@@ -8,6 +8,7 @@
  * 4. 실제 Jira Cloud API 연동 (Basic Auth + CORS 주의)
  * 5. 일일 업무 보고(Standup) & 주간 업무 보고 마크다운 컴포저
  * 6. 마크다운 간이 파서 및 클립보드/파일 다운로드 기능
+ * 7. 아틀라시안 컨플루언스(Confluence) 자동 문서 등록 & Deep Link 생성
  */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -15,6 +16,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const jiraUrlInput = document.getElementById('jira-url');
   const jiraEmailInput = document.getElementById('jira-email');
   const jiraTokenInput = document.getElementById('jira-token');
+  const confluenceSpaceInput = document.getElementById('confluence-space');
   const modeToggle = document.getElementById('mode-toggle');
   const saveSettingsBtn = document.getElementById('save-settings');
   const connectionStatusDot = document.getElementById('connection-status-dot');
@@ -51,6 +53,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const ticketTableBody = document.getElementById('ticket-table-body');
   const btnCopyReport = document.getElementById('btn-copy-report');
   const btnDownloadReport = document.getElementById('btn-download-report');
+  const btnConfluencePublish = document.getElementById('btn-confluence-publish');
 
   // 전역 상태 객체
   let appState = {
@@ -58,6 +61,7 @@ document.addEventListener('DOMContentLoaded', () => {
       url: '',
       email: '',
       token: '',
+      confluenceSpace: '',
       apiMode: false
     },
     filters: {
@@ -108,6 +112,7 @@ document.addEventListener('DOMContentLoaded', () => {
         jiraUrlInput.value = appState.settings.url || '';
         jiraEmailInput.value = appState.settings.email || '';
         jiraTokenInput.value = appState.settings.token || '';
+        confluenceSpaceInput.value = appState.settings.confluenceSpace || '';
         modeToggle.checked = appState.settings.apiMode || false;
       } catch (e) {
         console.error('설정을 파싱하는 도중 에러가 발생했습니다.', e);
@@ -280,6 +285,7 @@ document.addEventListener('DOMContentLoaded', () => {
     appState.settings.url = jiraUrlInput.value.trim();
     appState.settings.email = jiraEmailInput.value.trim();
     appState.settings.token = jiraTokenInput.value.trim();
+    appState.settings.confluenceSpace = confluenceSpaceInput.value.trim();
     appState.settings.apiMode = modeToggle.checked;
 
     localStorage.setItem('workflow_jira_settings', JSON.stringify(appState.settings));
@@ -294,6 +300,7 @@ document.addEventListener('DOMContentLoaded', () => {
     appState.settings.url = jiraUrlInput.value.trim();
     appState.settings.email = jiraEmailInput.value.trim();
     appState.settings.token = jiraTokenInput.value.trim();
+    appState.settings.confluenceSpace = confluenceSpaceInput.value.trim();
     appState.settings.apiMode = modeToggle.checked;
     
     // 로컬 스토리지에 현재 설정 즉시 보존
@@ -381,6 +388,44 @@ document.addEventListener('DOMContentLoaded', () => {
     downloadFile(reportText, filename);
   });
 
+  // 컨플루언스 자동 업로드 및 등록 버튼
+  btnConfluencePublish.addEventListener('click', async () => {
+    let reportText = '';
+    let reportTitle = '';
+    
+    if (appState.activeTab === 'tab-daily') {
+      reportText = appState.reports.daily;
+      const todayStr = new Date().toISOString().split('T')[0];
+      reportTitle = `📅 [일일 업무 보고서] ${todayStr}`;
+    } else if (appState.activeTab === 'tab-weekly') {
+      reportText = appState.reports.weekly;
+      reportTitle = `📊 [주간 프로젝트 보고서] ${appState.filters.dateStart} ~ ${appState.filters.dateEnd}`;
+    } else {
+      alert('컨플루언스에 등록할 보고서 탭(일일 혹은 주간)을 선택해주세요.');
+      return;
+    }
+
+    if (!reportText) {
+      alert('등록할 보고서가 비어있습니다. 먼저 [티켓 가져오기]를 실행해 주세요.');
+      return;
+    }
+
+    // 마크다운을 컨플루언스용 HTML 스키마로 파싱
+    const htmlContent = parseMarkdownToHtml(reportText);
+
+    btnConfluencePublish.disabled = true;
+    const originText = btnConfluencePublish.innerHTML;
+    btnConfluencePublish.textContent = '게시 중...';
+
+    try {
+      await publishToConfluence(reportTitle, htmlContent);
+    } catch (err) {
+      console.error('Confluence publish trigger failed:', err);
+    } finally {
+      btnConfluencePublish.disabled = false;
+      btnConfluencePublish.innerHTML = originText;
+    }
+  });
 
   // ==========================================================================
   // 3. JQL 빌더 로직 및 데이터 가져오기 실행부
@@ -577,6 +622,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     console.log(`[Jira Fetch] Successfully fetched all ${allIssues.length} tickets.`);
 
+    // 디버깅용: 지라가 돌려준 티켓들의 실제 담당자 프로필 이름 전체 출력
+    console.log('--- [Jira 연동 디버깅] 지라 서버가 반환한 실제 담당자(Assignee) 목록 ---');
+    allIssues.forEach(issue => {
+      const key = issue.key;
+      const disp = issue.fields?.assignee?.displayName || '담당자 미지정';
+      const name = issue.fields?.assignee?.name || 'name 정보 없음';
+      const email = issue.fields?.assignee?.emailAddress || '이메일 없음';
+      console.log(`티켓: ${key} | 지라 프로필 실명: "${disp}" | 시스템 ID: "${name}" | 이메일: ${email}`);
+    });
+    console.log('------------------------------------------------------------------');
+
     // 수집된 모든 티켓 포맷 가공 및 반환
     return allIssues.map(issue => {
       return {
@@ -590,7 +646,103 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ==========================================================================
-  // 5. Mock 데이터 생성기 (시뮬레이터)
+  // 5. Confluence API 연동 페이지 게시 함수
+  // ==========================================================================
+
+  async function publishToConfluence(title, htmlContent) {
+    const url = appState.settings.url;
+    const email = appState.settings.email;
+    const token = appState.settings.token;
+    const spaceKey = appState.settings.confluenceSpace;
+
+    if (!spaceKey) {
+      alert('컨플루언스에 등록하려면 설정 패널에서 "Confluence Space Key"를 반드시 입력하고 저장하셔야 합니다.');
+      throw new Error('Confluence Space Key 정보 누락');
+    }
+
+    // 1. 시뮬레이션 모드 (데모 기동)
+    if (!appState.settings.apiMode) {
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          const fakeBase = url ? url.trim().replace(/\/$/, '') : 'https://ikoobdoc.atlassian.net';
+          const fakeLink = `${fakeBase}/wiki/spaces/${spaceKey.toUpperCase()}/pages/${Math.floor(Math.random() * 90000000) + 10000000}`;
+          
+          alert(`[컨플루언스 등록 시뮬레이션 완료!]\n\n공간(Space): ${spaceKey.toUpperCase()}\n제목: ${title}\n\n등록된 페이지 주소 (클릭 시 이동 가능):\n${fakeLink}`);
+          window.open(fakeLink, '_blank');
+          resolve({ webLink: fakeLink });
+        }, 800);
+      });
+    }
+
+    // 2. 실제 API 모드 동작
+    if (!url || !email || !token) {
+      alert('실제 API 모드를 사용하려면 Jira URL, 이메일, API Token 설정을 입력하고 저장해 주세요.');
+      throw new Error('API Credentials missing');
+    }
+
+    const credential = btoa(`${email}:${token}`);
+    
+    let cleanUrl = url.trim();
+    try {
+      if (cleanUrl.toLowerCase().startsWith('http')) {
+        const urlObj = new URL(cleanUrl);
+        cleanUrl = `${urlObj.protocol}//${urlObj.host}`;
+      }
+    } catch (e) {
+      console.warn('Confluence Host 추출 실패, 원본 유지:', e);
+    }
+
+    // Confluence v1 Content API 엔드포인트 조립
+    const targetUrl = `${cleanUrl.replace(/\/$/, '')}/wiki/rest/api/content`;
+    const proxyEndpoint = `http://localhost:8080/?url=${encodeURIComponent(targetUrl)}`;
+
+    const requestBody = {
+      type: 'page',
+      title: title,
+      space: {
+        key: spaceKey.toUpperCase()
+      },
+      body: {
+        storage: {
+          value: htmlContent,
+          representation: 'storage'
+        }
+      }
+    };
+
+    try {
+      const response = await fetch(proxyEndpoint, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Basic ${credential}`,
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(requestBody)
+      });
+
+      if (!response.ok) {
+        const errBody = await response.text();
+        console.error('Confluence Publish Error Body:', errBody);
+        throw new Error(`컨플루언스 서버 응답 에러 (상태코드: ${response.status})`);
+      }
+
+      const data = await response.json();
+      const baseUrl = cleanUrl.replace(/\/$/, '');
+      const webui = data._links?.webui || '';
+      const docLink = `${baseUrl}/wiki${webui}`;
+
+      alert(`[컨플루언스 등록 성공!]\n\nConfluence에 문서가 성공적으로 발행되었습니다.\n\n확인 주소 (새 창으로 이동):\n${docLink}`);
+      window.open(docLink, '_blank');
+      return data;
+    } catch (err) {
+      alert(`[컨플루언스 게시 실패]\nAPI 호출 중 오류가 발생했습니다.\n\n오류: ${err.message}\n\n도메인 주소 설정이나 Space Key가 실제 컨플루언스 공간과 일치하는지 확인해 주세요.`);
+      throw err;
+    }
+  }
+
+  // ==========================================================================
+  // 6. Mock 데이터 생성기 (시뮬레이터)
   // ==========================================================================
 
   function generateMockTickets(projectKey, members, start, end) {
@@ -652,7 +804,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ==========================================================================
-  // 6. 데이터 분석 및 통계 계산
+  // 7. 데이터 분석 및 통계 계산
   // ==========================================================================
 
   function processFetchedData(tickets, nextTickets = []) {
@@ -725,7 +877,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ==========================================================================
-  // 7. 업무 보고서 컴포저 (Markdown 빌더)
+  // 8. 업무 보고서 컴포저 (Markdown 빌더)
   // ==========================================================================
 
   // 일일 Standup 보고서 컴포저
@@ -866,7 +1018,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ==========================================================================
-  // 8. 텍스트 마크다운 -> HTML 변환 (보안 및 프리미엄 뷰어용 간이 파서)
+  // 9. 텍스트 마크다운 -> HTML 변환 (보안 및 프리미엄 뷰어용 간이 파서)
   // ==========================================================================
 
   function parseMarkdownToHtml(markdown) {
@@ -949,7 +1101,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ==========================================================================
-  // 9. 보조 유틸리티 (클립보드 복사 & 다운로드)
+  // 10. 보조 유틸리티 (클립보드 복사 & 다운로드)
   // ==========================================================================
 
   function copyToClipboard(text, successMessage) {
