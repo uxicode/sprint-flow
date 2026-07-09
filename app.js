@@ -80,15 +80,22 @@ document.addEventListener('DOMContentLoaded', () => {
   // ==========================================================================
   
   function init() {
-    // 날짜 기본값 설정: 시작일(이번 주 월요일), 종료일(오늘)
+    // 날짜 기본값 설정: 시작일(이번 주 월요일), 종료일(이번 주 금요일)
     const today = new Date();
     const currentDay = today.getDay();
+    
+    // 이번 주 월요일 계산
     const distanceToMonday = currentDay === 0 ? -6 : 1 - currentDay;
     const monday = new Date(today);
     monday.setDate(today.getDate() + distanceToMonday);
 
+    // 이번 주 금요일 계산
+    const distanceToFriday = currentDay === 0 ? -2 : 5 - currentDay;
+    const friday = new Date(today);
+    friday.setDate(today.getDate() + distanceToFriday);
+
     dateStartInput.value = monday.toISOString().split('T')[0];
-    dateEndInput.value = today.toISOString().split('T')[0];
+    dateEndInput.value = friday.toISOString().split('T')[0];
 
     // LocalStorage에서 설정 로드
     const savedSettings = localStorage.getItem('workflow_jira_settings');
@@ -223,7 +230,6 @@ document.addEventListener('DOMContentLoaded', () => {
         teamMembersInput.value = members.join(', ');
         localStorage.setItem('workflow_filter_members', teamMembersInput.value);
         renderMemberChips();
-        triggerFetch();
       });
       
       teamMemberChips.appendChild(chip);
@@ -385,10 +391,9 @@ document.addEventListener('DOMContentLoaded', () => {
     localStorage.setItem('workflow_project_key', projectKeyInput.value.trim());
   });
 
+  // JQL 빌더 (이번 주 조회용)
   function buildJql() {
     const projectKey = projectKeyInput.value.trim() || 'PROJ';
-    
-    // 팀원 파싱
     const rawMembers = teamMembersInput.value.split(',');
     const members = rawMembers.map(m => m.trim()).filter(m => m.length > 0);
     appState.filters.teamMembers = members;
@@ -400,38 +405,87 @@ document.addEventListener('DOMContentLoaded', () => {
     appState.filters.dateStart = start;
     appState.filters.dateEnd = end;
 
-    // JQL 파트 조립
     let jql = `project = "${projectKey}"`;
-    
     if (members.length > 0) {
-      // Jira ID나 이름을 인용부호로 묶어서 조립
       const membersQuery = members.map(m => `"${m}"`).join(', ');
       jql += ` AND assignee in (${membersQuery})`;
     }
-    
     jql += ` AND status in ("In Progress", "Done", "Resolved", "To Do")`;
-    
-    if (start) {
-      jql += ` AND updated >= "${start}"`;
-    }
-    if (end) {
-      jql += ` AND updated <= "${end} 23:59"`;
-    }
-    
+    if (start) jql += ` AND updated >= "${start}"`;
+    if (end) jql += ` AND updated <= "${end} 23:59"`;
     jql += ` ORDER BY updated DESC`;
     
     jqlCode.textContent = jql;
     return jql;
   }
 
-  function triggerFetch() {
+  // JQL 빌더 (다음 주 조회용)
+  function buildNextWeekJql() {
+    const projectKey = projectKeyInput.value.trim() || 'PROJ';
+    const rawMembers = teamMembersInput.value.split(',');
+    const members = rawMembers.map(m => m.trim()).filter(m => m.length > 0);
+    
+    const start = dateStartInput.value;
+    const end = dateEndInput.value;
+    
+    // 다음 주 날짜 범위 계산 (현재 범위 +7일)
+    const nextStart = new Date(start);
+    nextStart.setDate(nextStart.getDate() + 7);
+    const nextStartStr = nextStart.toISOString().split('T')[0];
+
+    const nextEnd = new Date(end);
+    nextEnd.setDate(nextEnd.getDate() + 7);
+    const nextEndStr = nextEnd.toISOString().split('T')[0];
+
+    let jql = `project = "${projectKey}"`;
+    if (members.length > 0) {
+      const membersQuery = members.map(m => `"${m}"`).join(', ');
+      jql += ` AND assignee in (${membersQuery})`;
+    }
+    jql += ` AND status in ("In Progress", "Done", "Resolved", "To Do")`;
+    jql += ` AND updated >= "${nextStartStr}"`;
+    jql += ` AND updated <= "${nextEndStr} 23:59"`;
+    jql += ` ORDER BY updated DESC`;
+    
+    return jql;
+  }
+
+  async function triggerFetch() {
     const jql = buildJql();
+    const nextJql = buildNextWeekJql();
+    
     btnFetch.disabled = true;
     btnFetch.textContent = '불러오는 중...';
 
+    // 다음 주 날짜 문자열 계산
+    const start = dateStartInput.value;
+    const end = dateEndInput.value;
+    const nextStart = new Date(start);
+    nextStart.setDate(nextStart.getDate() + 7);
+    const nextStartStr = nextStart.toISOString().split('T')[0];
+    const nextEnd = new Date(end);
+    nextEnd.setDate(nextEnd.getDate() + 7);
+    const nextEndStr = nextEnd.toISOString().split('T')[0];
+
     if (appState.settings.apiMode) {
-      // 실제 Jira API 호출
-      fetchJiraTickets(jql);
+      try {
+        connectionStatusText.textContent = '이번 주 데이터 로드 중...';
+        const currentTickets = await fetchJiraTickets(jql);
+        
+        connectionStatusText.textContent = '다음 주 계획 데이터 로드 중...';
+        const nextTickets = await fetchJiraTickets(nextJql);
+        
+        processFetchedData(currentTickets, nextTickets);
+        connectionStatusText.textContent = `Jira API 연동 완료 (이번 주 ${currentTickets.length}건 / 다음 주 ${nextTickets.length}건)`;
+      } catch (err) {
+        console.error('Jira API fetch error:', err);
+        alert(`[Jira API 연동 실패]\n서버 응답 오류 혹은 설정값 오류가 발생했습니다.\n\n오류 내용: ${err.message}\n\n입력하신 Jira URL, 이메일, API Token이 정확한지 다시 한번 확인해주세요.`);
+        connectionStatusDot.style.backgroundColor = 'var(--color-danger)';
+        connectionStatusText.textContent = `연동 실패 (${err.message})`;
+      } finally {
+        btnFetch.disabled = false;
+        btnFetch.textContent = '티켓 가져오기';
+      }
     } else {
       // 시뮬레이션 모드 (더미 데이터 생성)
       setTimeout(() => {
@@ -441,7 +495,13 @@ document.addEventListener('DOMContentLoaded', () => {
           appState.filters.dateStart,
           appState.filters.dateEnd
         );
-        processFetchedData(mockTickets);
+        const nextMockTickets = generateMockTickets(
+          appState.filters.projectKey,
+          appState.filters.teamMembers,
+          nextStartStr,
+          nextEndStr
+        );
+        processFetchedData(mockTickets, nextMockTickets);
         btnFetch.disabled = false;
         btnFetch.textContent = '티켓 가져오기';
       }, 500);
@@ -458,11 +518,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const token = appState.settings.token;
 
     if (!url || !email || !token) {
-      alert('실제 API 모드를 사용하려면 Jira URL, 이메일, API Token 설정을 저장하셔야 합니다.\n현재 설정을 확인해주세요.');
-      modeToggle.checked = false;
-      updateConnectionStatusUI();
-      triggerFetch();
-      return;
+      throw new Error('Jira API 설정 정보가 누락되었습니다.');
     }
 
     const credential = btoa(`${email}:${token}`);
@@ -477,92 +533,60 @@ document.addEventListener('DOMContentLoaded', () => {
       console.warn('Jira URL 호스트 추출 실패, 원본 유지:', e);
     }
     
-    // 페이지네이션 루프 변수 설정
     let allIssues = [];
     let startAt = 0;
     let isLastPage = false;
     const limit = 100;
-
-    try {
-      connectionStatusText.textContent = 'Jira 연결 중...';
       
-      while (!isLastPage) {
-        // Jira Cloud API Search 엔드포인트 조립 (maxResults와 startAt 포함)
-        const targetUrl = `${cleanUrl.replace(/\/$/, '')}/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=key,summary,status,assignee,updated&maxResults=${limit}&startAt=${startAt}`;
-        const apiEndpoint = `http://localhost:8080/?url=${encodeURIComponent(targetUrl)}`;
-        
-        console.log(`[Jira Fetch] Fetching page starting at ${startAt}...`);
-        const response = await fetch(apiEndpoint, {
-          method: 'GET',
-          headers: {
-            'Authorization': `Basic ${credential}`,
-            'Accept': 'application/json',
-            'Content-Type': 'application/json'
-          }
-        });
-
-        if (!response.ok) {
-          throw new Error(`HTTP 에러! 상태코드: ${response.status}`);
+    while (!isLastPage) {
+      const targetUrl = `${cleanUrl.replace(/\/$/, '')}/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=key,summary,status,assignee,updated&maxResults=${limit}&startAt=${startAt}`;
+      const apiEndpoint = `http://localhost:8080/?url=${encodeURIComponent(targetUrl)}`;
+      
+      console.log(`[Jira Fetch] Fetching page starting at ${startAt}...`);
+      const response = await fetch(apiEndpoint, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Basic ${credential}`,
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
         }
+      });
 
-        const contentType = response.headers.get('content-type') || '';
-        if (!contentType.includes('application/json')) {
-          const textError = await response.text();
-          console.warn('비JSON 응답 감지:', textError.substring(0, 300));
-          throw new Error('Jira 서버가 JSON 대신 HTML 페이지를 반환했습니다. 이메일/토큰 정보가 잘못되었거나 URL 주소 형식이 올바르지 않습니다.');
-        }
-
-        const data = await response.json();
-        const pageIssues = data.issues || [];
-        allIssues = allIssues.concat(pageIssues);
-        
-        const totalCount = data.total || 0;
-        connectionStatusText.textContent = `티켓 로드 중... (${allIssues.length}/${totalCount}건 완료)`;
-        
-        // 페이지네이션 인덱스 증가
-        startAt += pageIssues.length;
-        
-        // 루프 탈출 조건 검사
-        if (pageIssues.length === 0 || allIssues.length >= totalCount) {
-          isLastPage = true;
-        }
+      if (!response.ok) {
+        throw new Error(`HTTP 에러! 상태코드: ${response.status}`);
       }
 
-      console.log(`[Jira Fetch] Successfully fetched all ${allIssues.length} tickets.`);
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        throw new Error('Jira 서버가 JSON 대신 올바르지 않은 타입의 문서를 반환했습니다.');
+      }
 
-      // 디버깅용: 지라가 돌려준 티켓들의 실제 담당자 프로필 이름 전체 출력
-      console.log('--- [Jira 연동 디버깅] 지라 서버가 반환한 실제 담당자(Assignee) 목록 ---');
-      allIssues.forEach(issue => {
-        const key = issue.key;
-        const disp = issue.fields?.assignee?.displayName || '담당자 미지정';
-        const name = issue.fields?.assignee?.name || 'name 정보 없음';
-        const email = issue.fields?.assignee?.emailAddress || '이메일 없음';
-        console.log(`티켓: ${key} | 지라 프로필 실명: "${disp}" | 시스템 ID: "${name}" | 이메일: ${email}`);
-      });
-      console.log('------------------------------------------------------------------');
-
-      // 수집된 모든 티켓 포맷 가공
-      const tickets = allIssues.map(issue => {
-        return {
-          key: issue.key || '',
-          summary: issue.fields?.summary || '제목 없음',
-          status: issue.fields?.status ? (issue.fields.status.name || 'To Do') : 'To Do',
-          assignee: issue.fields?.assignee ? (issue.fields.assignee.displayName || issue.fields.assignee.name || '미지정') : '미지정',
-          updated: issue.fields?.updated ? issue.fields.updated.substring(0, 10) : ''
-        };
-      });
-
-      processFetchedData(tickets);
-      connectionStatusText.textContent = `Jira API 연동 완료 (총 ${tickets.length}건)`;
-    } catch (err) {
-      console.error('Jira API fetch error:', err);
-      alert(`[Jira API 연동 실패]\n서버 응답 오류 혹은 설정값 오류가 발생했습니다.\n\n오류 내용: ${err.message}\n\n입력하신 Jira URL, 이메일, API Token이 정확한지 다시 한번 확인해주세요.`);
-      connectionStatusDot.style.backgroundColor = 'var(--color-danger)';
-      connectionStatusText.textContent = `연동 실패 (${err.message})`;
-    } finally {
-      btnFetch.disabled = false;
-      btnFetch.textContent = '티켓 가져오기';
+      const data = await response.json();
+      const pageIssues = data.issues || [];
+      allIssues = allIssues.concat(pageIssues);
+      
+      const totalCount = data.total || 0;
+      connectionStatusText.textContent = `티켓 수집 중... (${allIssues.length}/${totalCount}건)`;
+      
+      startAt += pageIssues.length;
+      
+      if (pageIssues.length === 0 || allIssues.length >= totalCount) {
+        isLastPage = true;
+      }
     }
+
+    console.log(`[Jira Fetch] Successfully fetched all ${allIssues.length} tickets.`);
+
+    // 수집된 모든 티켓 포맷 가공 및 반환
+    return allIssues.map(issue => {
+      return {
+        key: issue.key || '',
+        summary: issue.fields?.summary || '제목 없음',
+        status: issue.fields?.status ? (issue.fields.status.name || 'To Do') : 'To Do',
+        assignee: issue.fields?.assignee ? (issue.fields.assignee.displayName || issue.fields.assignee.name || '미지정') : '미지정',
+        updated: issue.fields?.updated ? issue.fields.updated.substring(0, 10) : ''
+      };
+    });
   }
 
   // ==========================================================================
@@ -631,7 +655,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // 6. 데이터 분석 및 통계 계산
   // ==========================================================================
 
-  function processFetchedData(tickets) {
+  function processFetchedData(tickets, nextTickets = []) {
     appState.fetchedTickets = tickets;
 
     // 통계 계산
@@ -673,7 +697,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 2. 보고서 템플릿 조립 및 렌더링
     generateDailyStandupReport(tickets);
-    generateWeeklyReport(tickets);
+    generateWeeklyReport(tickets, nextTickets);
   }
 
   function renderRawTicketTable(tickets) {
@@ -769,7 +793,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // 주간 업무 보고서 컴포저
-  function generateWeeklyReport(tickets) {
+  function generateWeeklyReport(tickets, nextTickets = []) {
     const start = appState.filters.dateStart;
     const end = appState.filters.dateEnd;
     const total = tickets.length;
@@ -816,8 +840,24 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     md += `## 🚀 4. 다음 주 주요 계획 및 이슈 사항\n\n`;
-    md += `* **마일스톤 점검**: 예정된 티켓 중 우선순위가 높은 이슈에 대한 우선 개발 진행.\n`;
-    md += `* **장애 요인**: 시뮬레이션 및 API 연결 환경 설정 시 CORS 발생 우려에 대비해 로컬 노드 프록시 준비 권장.\n`;
+    
+    if (nextTickets.length === 0) {
+      md += `* **마일스톤 점검**: 다음 주 예정된 지라 티켓이 등록되어 있지 않거나 계획을 불러올 수 없습니다.\n`;
+      md += `* **장애 요인**: 예정된 주요 마일스톤에 지연 요소가 없는지 리스크 사전 점검.\n`;
+    } else {
+      // 다음 주 티켓을 분석하여 담당자별로 동적인 주간 계획표 완성
+      const nextMembers = [...new Set(nextTickets.map(t => t.assignee))];
+      nextMembers.forEach(member => {
+        md += `### 👤 담당자: ${member} 계획\n`;
+        const memberNext = nextTickets.filter(t => t.assignee === member);
+        memberNext.forEach(t => {
+          const cat = getStatusCategory(t.status);
+          const stateSymbol = cat === 'Done' ? '🟢 [완료예정]' : cat === 'In Progress' ? '🔄 [진행예정]' : '⏱️ [할일]';
+          md += `* ${stateSymbol} **[${t.key}]** ${t.summary} (\`${t.status}\`)\n`;
+        });
+        md += `\n`;
+      });
+    }
 
     appState.reports.weekly = md;
     
