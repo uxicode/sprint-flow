@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import PerformanceAnalytics from './components/PerformanceAnalytics';
 
 export default function Home() {
   // SSR 하이드레이션 보호용 마운트 상태
@@ -1168,6 +1169,13 @@ export default function Home() {
               </button>
               <button 
                 type="button" 
+                className={`tab-btn ${activeTab === 'tab-analytics' ? 'active' : ''}`}
+                onClick={() => setActiveTab('tab-analytics')}
+              >
+                📊 실적 분석
+              </button>
+              <button 
+                type="button" 
                 className={`tab-btn ${activeTab === 'tab-raw' ? 'active' : ''}`}
                 onClick={() => setActiveTab('tab-raw')}
               >
@@ -1216,6 +1224,16 @@ export default function Home() {
                   dangerouslySetInnerHTML={{ __html: parseMarkdownToHtml(weeklyReportMd) || '<p style="color: var(--text-muted);">가져온 티켓이 없습니다. 상단에서 필터를 채운 후 티켓 가져오기를 실행해 주세요.</p>' }}
                 ></div>
               </div>
+            </div>
+
+            {/* 실적 분석 탭 */}
+            <div className={`tab-content ${activeTab === 'tab-analytics' ? 'active' : ''}`}>
+              <PerformanceAnalytics 
+                tickets={tickets} 
+                projectKey={projectKey}
+                dateStart={dateStart}
+                dateEnd={dateEnd}
+              />
             </div>
 
             {/* 원시 티켓 목록 탭 */}
