@@ -204,7 +204,7 @@ export default function Home() {
     const limit = 100;
 
     while (!isLastPage) {
-      const targetUrl = `${cleanUrl.replace(/\/$/, '')}/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=key,summary,status,assignee,updated&maxResults=${limit}&startAt=${startAt}`;
+      const targetUrl = `${cleanUrl.replace(/\/$/, '')}/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=key,summary,status,assignee,updated,parent&maxResults=${limit}&startAt=${startAt}`;
       const apiEndpoint = `/api/proxy?url=${encodeURIComponent(targetUrl)}`;
 
       console.log(`[Jira Fetch] Next.js route proxy 호출 starting at ${startAt}...`);
@@ -245,7 +245,11 @@ export default function Home() {
       summary: issue.fields?.summary || '제목 없음',
       status: issue.fields?.status ? (issue.fields.status.name || 'To Do') : 'To Do',
       assignee: issue.fields?.assignee ? (issue.fields.assignee.displayName || issue.fields.assignee.name || '미지정') : '미지정',
-      updated: issue.fields?.updated ? issue.fields.updated.substring(0, 10) : ''
+      updated: issue.fields?.updated ? issue.fields.updated.substring(0, 10) : '',
+      epic: issue.fields?.parent ? {
+        key: issue.fields.parent.key || '',
+        summary: issue.fields.parent.fields?.summary || issue.fields.parent.key || '에픽 없음'
+      } : null
     }));
   };
 
@@ -295,12 +299,23 @@ export default function Home() {
         const dummyStatus = statusOptions[i % statusOptions.length];
         const dummyDate = dateArray[i % dateArray.length];
 
+        // 더미 에픽 정보 생성
+        const epicPool = [
+          { key: `${projKey}-10`, summary: 'Q1 사용자 경험 개선' },
+          { key: `${projKey}-20`, summary: 'API 성능 최적화' },
+          { key: `${projKey}-30`, summary: 'UI/UX 리뉴얼' },
+          { key: `${projKey}-40`, summary: '보안 강화' },
+          { key: `${projKey}-50`, summary: '데이터 마이그레이션' }
+        ];
+        const randomEpic = i % 2 === 0 ? epicPool[(memberSeed + i) % epicPool.length] : null;
+
         result.push({
           key: `${projKey}-${keyCounter++}`,
           summary: dummySummary,
           status: dummyStatus,
           assignee: member,
-          updated: dummyDate
+          updated: dummyDate,
+          epic: randomEpic
         });
       }
     });
@@ -475,7 +490,8 @@ export default function Home() {
           dailyMd += `- 완료된 업무가 없습니다.\n`;
         } else {
           completed.forEach(t => {
-            dailyMd += `- [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key)}) (업데이트: ${t.updated})\n`;
+            const epicInfo = t.epic ? ` \`[Epic: ${t.epic.key}]\`` : '';
+            dailyMd += `- [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key)})${epicInfo} (업데이트: ${t.updated})\n`;
           });
         }
         dailyMd += `\n`;
@@ -485,7 +501,8 @@ export default function Home() {
           dailyMd += `- 진행 중인 업무가 없습니다.\n`;
         } else {
           progressing.forEach(t => {
-            dailyMd += `- [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key)})\n`;
+            const epicInfo = t.epic ? ` \`[Epic: ${t.epic.key}]\`` : '';
+            dailyMd += `- [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key)})${epicInfo}\n`;
           });
         }
         dailyMd += `\n---\n\n`;
@@ -526,7 +543,8 @@ export default function Home() {
           memberTickets.forEach(t => {
             const cat = getStatusCategory(t.status);
             const statusIndicator = (cat === 'Done') ? '✅' : (cat === 'In Progress') ? '🔄' : '⏱️';
-            weeklyMd += `* ${statusIndicator} [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key)}) (\`${t.status}\`, 업데이트: ${t.updated})\n`;
+            const epicInfo = t.epic ? ` \`[Epic: ${t.epic.key} - ${escapeBrackets(t.epic.summary)}]\`` : '';
+            weeklyMd += `* ${statusIndicator} [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key)})${epicInfo} (\`${t.status}\`, 업데이트: ${t.updated})\n`;
           });
         }
         weeklyMd += `\n`;
@@ -545,7 +563,8 @@ export default function Home() {
         memberNext.forEach(t => {
           const cat = getStatusCategory(t.status);
           const stateSymbol = cat === 'Done' ? '🟢 [완료예정]' : cat === 'In Progress' ? '🔄 [진행예정]' : '⏱️ [할일]';
-          weeklyMd += `* ${stateSymbol} [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key)}) (\`${t.status}\`)\n`;
+          const epicInfo = t.epic ? ` \`[Epic: ${t.epic.key}]\`` : '';
+          weeklyMd += `* ${stateSymbol} [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key)})${epicInfo} (\`${t.status}\`)\n`;
         });
         weeklyMd += `\n`;
       });
@@ -1225,6 +1244,7 @@ export default function Home() {
                   <thead>
                     <tr>
                       <th>키</th>
+                      <th>에픽</th>
                       <th>요약</th>
                       <th>상태</th>
                       <th>담당자</th>
@@ -1234,7 +1254,7 @@ export default function Home() {
                   <tbody>
                     {tickets.length === 0 ? (
                       <tr>
-                        <td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
+                        <td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
                           조건에 맞는 티켓이 존재하지 않습니다.
                         </td>
                       </tr>
@@ -1245,6 +1265,15 @@ export default function Home() {
                         return (
                           <tr key={idx}>
                             <td><strong>{ticket.key}</strong></td>
+                            <td>
+                              {ticket.epic ? (
+                                <span className="epic-badge" title={ticket.epic.summary}>
+                                  {ticket.epic.key}
+                                </span>
+                              ) : (
+                                <span style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>-</span>
+                              )}
+                            </td>
                             <td>{ticket.summary}</td>
                             <td><span className={`status-badge ${statusClass}`}>{ticket.status}</span></td>
                             <td>{ticket.assignee}</td>
