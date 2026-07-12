@@ -48,7 +48,7 @@ export default function Home() {
     // 날짜 디폴트 계산: 이번 주 월요일 ~ 이번 주 금요일
     const today = new Date();
     const currentDay = today.getDay();
-    
+
     const distanceToMonday = currentDay === 0 ? -6 : 1 - currentDay;
     const monday = new Date(today);
     monday.setDate(today.getDate() + distanceToMonday);
@@ -141,7 +141,7 @@ export default function Home() {
   const getJql = () => {
     const proj = projectKey.trim() || 'PROJ';
     const members = teamMembers.split(',').map(m => m.trim()).filter(m => m.length > 0);
-    
+
     let jql = `project = "${proj}"`;
     if (members.length > 0) {
       const membersQuery = members.map(m => `"${m}"`).join(', ');
@@ -157,7 +157,7 @@ export default function Home() {
   const getNextWeekJql = () => {
     const proj = projectKey.trim() || 'PROJ';
     const members = teamMembers.split(',').map(m => m.trim()).filter(m => m.length > 0);
-    
+
     // 다음 주 날짜 범위 계산
     const start = dateStart || new Date().toISOString().split('T')[0];
     const end = dateEnd || new Date().toISOString().split('T')[0];
@@ -318,7 +318,7 @@ export default function Home() {
     if (params.apiMode) {
       const proj = params.projectKey.trim() || 'PROJ';
       const members = params.teamMembers.split(',').map(m => m.trim()).filter(m => m.length > 0);
-      
+
       let jql = `project = "${proj}"`;
       if (members.length > 0) {
         const membersQuery = members.map(m => `"${m}"`).join(', ');
@@ -349,7 +349,7 @@ export default function Home() {
       try {
         setConnectionStatus({ dot: 'success', text: '초기 로드: 이번 주 데이터 수집 중...' });
         const currentData = await fetchJiraTickets(jql, params.url, params.email, params.token);
-        
+
         setConnectionStatus({ dot: 'success', text: '초기 로드: 다음 주 계획 수집 중...' });
         const nextData = await fetchJiraTickets(nextJql, params.url, params.email, params.token);
 
@@ -363,7 +363,7 @@ export default function Home() {
       } catch (err) {
         console.error('초기 로딩 지라 API 에러:', err);
         setConnectionStatus({ dot: 'danger', text: `초기 로드 실패 (${err.message})` });
-        
+
         // 폴백으로 Mock 데이터 제공
         const mock = generateMockTickets(params.projectKey, params.teamMembers, params.start, params.end);
         const nextMock = generateMockTickets(params.projectKey, params.teamMembers, nextStartStr, nextEndStr);
@@ -376,13 +376,13 @@ export default function Home() {
     } else {
       setTimeout(() => {
         const mock = generateMockTickets(params.projectKey, params.teamMembers, params.start, params.end);
-        
+
         const nextStart = new Date(params.start);
         nextStart.setDate(nextStart.getDate() + 7);
         const nextEnd = new Date(params.end);
         nextEnd.setDate(nextEnd.getDate() + 7);
         const nextMock = generateMockTickets(params.projectKey, params.teamMembers, nextStart.toISOString().split('T')[0], nextEnd.toISOString().split('T')[0]);
-        
+
         setTickets(mock);
         setNextTickets(nextMock);
         processReportData(mock, nextMock, params.start, params.end, params.projectKey);
@@ -409,7 +409,7 @@ export default function Home() {
       try {
         setConnectionStatus({ dot: 'success', text: '이번 주 데이터 로드 중...' });
         const currentData = await fetchJiraTickets(jql, url, email, token);
-        
+
         setConnectionStatus({ dot: 'success', text: '다음 주 계획 데이터 로드 중...' });
         const nextData = await fetchJiraTickets(nextJql, url, email, token);
 
@@ -573,7 +573,7 @@ export default function Home() {
   const handleApiToggle = (e) => {
     const enabled = e.target.checked;
     setApiMode(enabled);
-    
+
     const settings = { url, email, token, confluenceSpace, confluenceParentId, apiMode: enabled };
     localStorage.setItem('workflow_jira_settings', JSON.stringify(settings));
 
@@ -582,7 +582,7 @@ export default function Home() {
     } else {
       setConnectionStatus({ dot: 'accent', text: '시뮬레이션 모드 작동 중' });
     }
-    
+
     // 모드 변경 시 즉시 fetch 재실행
     setTimeout(() => handleFetchTickets(), 50);
   };
@@ -627,7 +627,7 @@ export default function Home() {
   const handlePublishConfluence = async () => {
     let reportText = '';
     let reportTitle = '';
-    
+
     if (activeTab === 'tab-daily') {
       reportText = dailyReportMd;
       const todayStr = new Date().toISOString().split('T')[0];
@@ -822,7 +822,7 @@ export default function Home() {
     const lines = html.split('\n');
     let inTable = false;
     let tableHtml = '';
-    
+
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim();
       if (line.startsWith('|') && line.endsWith('|')) {
@@ -837,7 +837,7 @@ export default function Home() {
 
         const cols = line.split('|').map(c => c.trim()).filter((c, idx, arr) => idx > 0 && idx < arr.length - 1);
         const tag = tableHtml.includes('<th>') ? 'td' : 'th';
-        
+
         tableHtml += '<tr>';
         cols.forEach(col => {
           tableHtml += `<${tag}>${col}</${tag}>`;
@@ -901,50 +901,50 @@ export default function Home() {
           <h2>Jira API 설정</h2>
           <div className="setting-group">
             <label htmlFor="jira-url">Jira URL</label>
-            <input 
-              type="url" 
-              id="jira-url" 
-              placeholder="https://your-domain.atlassian.net" 
+            <input
+              type="url"
+              id="jira-url"
+              placeholder="https://your-domain.atlassian.net"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
             />
           </div>
           <div className="setting-group">
             <label htmlFor="jira-email">이메일</label>
-            <input 
-              type="email" 
-              id="jira-email" 
-              placeholder="user@company.com" 
+            <input
+              type="email"
+              id="jira-email"
+              placeholder="user@company.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
           </div>
           <div className="setting-group">
             <label htmlFor="jira-token">API Token</label>
-            <input 
-              type="password" 
-              id="jira-token" 
-              placeholder="ATATT..." 
+            <input
+              type="password"
+              id="jira-token"
+              placeholder="ATATT..."
               value={token}
               onChange={(e) => setToken(e.target.value)}
             />
           </div>
           <div className="setting-group">
             <label htmlFor="confluence-space">Confluence Space Key</label>
-            <input 
-              type="text" 
-              id="confluence-space" 
-              placeholder="PROJ" 
+            <input
+              type="text"
+              id="confluence-space"
+              placeholder="PROJ"
               value={confluenceSpace}
               onChange={(e) => setConfluenceSpace(e.target.value)}
             />
           </div>
           <div className="setting-group">
             <label htmlFor="confluence-parent-id">Confluence 부모 페이지 ID (선택)</label>
-            <input 
-              type="text" 
-              id="confluence-parent-id" 
-              placeholder="3792306206" 
+            <input
+              type="text"
+              id="confluence-parent-id"
+              placeholder="3792306206"
               value={confluenceParentId}
               onChange={(e) => setConfluenceParentId(e.target.value)}
             />
@@ -953,8 +953,8 @@ export default function Home() {
           <div className="mode-switch-container">
             <span className="mode-label">API 모드 활성화</span>
             <label className="switch" id="mode-toggle-label">
-              <input 
-                type="checkbox" 
+              <input
+                type="checkbox"
                 id="mode-toggle"
                 checked={apiMode}
                 onChange={handleApiToggle}
@@ -964,16 +964,16 @@ export default function Home() {
           </div>
           <p className="mode-desc">비활성화 시 데모용 Mock 데이터가 로드됩니다.</p>
           <button type="button" onClick={handleSaveSettings} className="btn btn-secondary">설정 저장</button>
-          
+
           <hr className="panel-divider" />
-          
+
           <h2>팀원 관리</h2>
           <div className="setting-group">
             <label htmlFor="new-member">팀원 추가</label>
             <div className="input-with-action">
-              <input 
-                type="text" 
-                id="new-member" 
+              <input
+                type="text"
+                id="new-member"
                 placeholder="이름 또는 ID 입력"
                 value={newMemberName}
                 onChange={(e) => setNewMemberName(e.target.value)}
@@ -994,7 +994,7 @@ export default function Home() {
             </ul>
           </div>
         </nav>
-        
+
         <div className="footer-info">
           <p>© 2026 SprintFlow Inc.</p>
           <p>Next.js Integrated</p>
@@ -1024,10 +1024,10 @@ export default function Home() {
           <form onSubmit={handleFetchTickets} className="filter-grid">
             <div className="form-group">
               <label htmlFor="project-key">프로젝트 키</label>
-              <input 
-                type="text" 
-                id="project-key" 
-                placeholder="예: PROJ, DEVEL" 
+              <input
+                type="text"
+                id="project-key"
+                placeholder="예: PROJ, DEVEL"
                 value={projectKey}
                 onChange={(e) => {
                   setProjectKey(e.target.value);
@@ -1037,10 +1037,10 @@ export default function Home() {
             </div>
             <div className="form-group team-input-group">
               <label htmlFor="team-members">대상 팀원 (이름/ID)</label>
-              <input 
-                type="text" 
-                id="team-members" 
-                placeholder="쉼표(,)로 구분 (예: 김철수, 이영희)" 
+              <input
+                type="text"
+                id="team-members"
+                placeholder="쉼표(,)로 구분 (예: 김철수, 이영희)"
                 value={teamMembers}
                 onChange={(e) => {
                   setTeamMembers(e.target.value);
@@ -1049,8 +1049,8 @@ export default function Home() {
               />
               <div className="member-chips-wrapper">
                 {registeredMembers.map((member, idx) => (
-                  <div 
-                    key={idx} 
+                  <div
+                    key={idx}
                     className={`member-chip ${activeChipsList.includes(member) ? 'active' : ''}`}
                     onClick={() => handleToggleMemberChip(member)}
                   >
@@ -1061,18 +1061,18 @@ export default function Home() {
             </div>
             <div className="form-group">
               <label htmlFor="date-start">시작일</label>
-              <input 
-                type="date" 
-                id="date-start" 
+              <input
+                type="date"
+                id="date-start"
                 value={dateStart}
                 onChange={(e) => setDateStart(e.target.value)}
               />
             </div>
             <div className="form-group">
               <label htmlFor="date-end">종료일</label>
-              <input 
-                type="date" 
-                id="date-end" 
+              <input
+                type="date"
+                id="date-end"
                 value={dateEnd}
                 onChange={(e) => setDateEnd(e.target.value)}
               />
@@ -1097,11 +1097,11 @@ export default function Home() {
             </div>
             <div className="stats-content">
               <div className="chart-container">
-                <div 
-                  className="css-pie" 
-                  style={{ 
-                    '--p-done': `${donePercent}%`, 
-                    '--p-progress': `${progressPercent}%` 
+                <div
+                  className="css-pie"
+                  style={{
+                    '--p-done': `${donePercent}%`,
+                    '--p-progress': `${progressPercent}%`
                   }}
                 ></div>
                 <div className="chart-legend">
@@ -1153,15 +1153,15 @@ export default function Home() {
         <section className="report-section card">
           <div className="report-tabs-header">
             <div className="tabs">
-              <button 
-                type="button" 
+              <button
+                type="button"
                 className={`tab-btn ${activeTab === 'tab-daily' ? 'active' : ''}`}
                 onClick={() => setActiveTab('tab-daily')}
               >
                 일일 업무 보고서
               </button>
-              <button 
-                type="button" 
+              <button
+                type="button"
                 className={`tab-btn ${activeTab === 'tab-weekly' ? 'active' : ''}`}
                 onClick={() => setActiveTab('tab-weekly')}
               >
@@ -1209,7 +1209,7 @@ export default function Home() {
             {/* 일일 업무 보고 탭 */}
             <div className={`tab-content ${activeTab === 'tab-daily' ? 'active' : ''}`}>
               <div className="report-editor-container">
-                <div 
+                <div
                   className="markdown-preview"
                   dangerouslySetInnerHTML={{ __html: parseMarkdownToHtml(dailyReportMd) || '<p style="color: var(--text-muted);">가져온 티켓이 없습니다. 상단에서 필터를 채운 후 티켓 가져오기를 실행해 주세요.</p>' }}
                 ></div>
@@ -1219,7 +1219,7 @@ export default function Home() {
             {/* 주간 업무 보고 탭 */}
             <div className={`tab-content ${activeTab === 'tab-weekly' ? 'active' : ''}`}>
               <div className="report-editor-container">
-                <div 
+                <div
                   className="markdown-preview"
                   dangerouslySetInnerHTML={{ __html: parseMarkdownToHtml(weeklyReportMd) || '<p style="color: var(--text-muted);">가져온 티켓이 없습니다. 상단에서 필터를 채운 후 티켓 가져오기를 실행해 주세요.</p>' }}
                 ></div>

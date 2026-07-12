@@ -429,19 +429,6 @@ input:checked+.slider:before {
   border-color: rgba(255, 255, 255, 0.2);
 }
 
-.btn-confluence {
-  background: linear-gradient(135deg, #9b51e0, #7f56d9);
-  color: #ffffff !important;
-  box-shadow: 0 4px 15px rgba(155, 81, 224, 0.3);
-  border: 1px solid rgba(155, 81, 224, 0.5);
-}
-
-.btn-confluence:hover:not(:disabled) {
-  transform: translateY(-2px);
-  background: linear-gradient(135deg, #af6df5, #9363e8);
-  box-shadow: 0 0 25px rgba(155, 81, 224, 0.6);
-}
-
 .btn-sm {
   padding: 0.5rem 1rem;
   font-size: 0.85rem;
