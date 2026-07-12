@@ -1,6 +1,6 @@
 /**
  * Workflow - Jira Report Generator App JavaScript Logic
- *
+ * 
  * 주요 기능:
  * 1. 로컬 환경 설정 보존 및 로드 (LocalStorage)
  * 2. Jira Cloud JQL JQL 동적 빌더
@@ -8,6 +8,7 @@
  * 4. 실제 Jira Cloud API 연동 (Basic Auth + CORS 주의)
  * 5. 일일 업무 보고(Standup) & 주간 업무 보고 마크다운 컴포저
  * 6. 마크다운 간이 파서 및 클립보드/파일 다운로드 기능
+ * 7. 아틀라시안 컨플루언스(Confluence) 자동 문서 등록 & Deep Link 생성
  */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -15,6 +16,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const jiraUrlInput = document.getElementById('jira-url');
   const jiraEmailInput = document.getElementById('jira-email');
   const jiraTokenInput = document.getElementById('jira-token');
+  const confluenceSpaceInput = document.getElementById('confluence-space');
   const modeToggle = document.getElementById('mode-toggle');
   const saveSettingsBtn = document.getElementById('save-settings');
   const connectionStatusDot = document.getElementById('connection-status-dot');
@@ -51,6 +53,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const ticketTableBody = document.getElementById('ticket-table-body');
   const btnCopyReport = document.getElementById('btn-copy-report');
   const btnDownloadReport = document.getElementById('btn-download-report');
+  const btnConfluencePublish = document.getElementById('btn-confluence-publish');
 
   // 전역 상태 객체
   let appState = {
@@ -58,6 +61,7 @@ document.addEventListener('DOMContentLoaded', () => {
       url: '',
       email: '',
       token: '',
+      confluenceSpace: '',
       apiMode: false
     },
     filters: {
@@ -78,9 +82,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // ==========================================================================
   // 1. 초기 설정 로드 및 날짜 기본값 셋팅
   // ==========================================================================
-
+  
   function init() {
     // 날짜 기본값 설정: 시작일(이번 주 월요일), 종료일(이번 주 금요일)
+<<<<<<<< HEAD:backup-vanilla/app.js
     const formatDate = (d) => {
       const year = d.getFullYear();
       const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -90,17 +95,32 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const today = new Date();
     const currentDay = today.getDay();
-
+    
+========
+    const today = new Date();
+    const currentDay = today.getDay();
+    
+    // 이번 주 월요일 계산
+>>>>>>>> 4509221d855a70154aa7dea41fbcaad56f90c748:_legacy_backup/app.js
     const distanceToMonday = currentDay === 0 ? -6 : 1 - currentDay;
     const monday = new Date(today);
     monday.setDate(today.getDate() + distanceToMonday);
 
+<<<<<<<< HEAD:backup-vanilla/app.js
+========
+    // 이번 주 금요일 계산
+>>>>>>>> 4509221d855a70154aa7dea41fbcaad56f90c748:_legacy_backup/app.js
     const distanceToFriday = currentDay === 0 ? -2 : 5 - currentDay;
     const friday = new Date(today);
     friday.setDate(today.getDate() + distanceToFriday);
 
+<<<<<<<< HEAD:backup-vanilla/app.js
     dateStartInput.value = formatDate(monday);
     dateEndInput.value = formatDate(friday);
+========
+    dateStartInput.value = monday.toISOString().split('T')[0];
+    dateEndInput.value = friday.toISOString().split('T')[0];
+>>>>>>>> 4509221d855a70154aa7dea41fbcaad56f90c748:_legacy_backup/app.js
 
     // LocalStorage에서 설정 로드
     const savedSettings = localStorage.getItem('workflow_jira_settings');
@@ -108,11 +128,12 @@ document.addEventListener('DOMContentLoaded', () => {
       try {
         const parsed = JSON.parse(savedSettings);
         appState.settings = { ...appState.settings, ...parsed };
-
+        
         // UI에 바인딩
         jiraUrlInput.value = appState.settings.url || '';
         jiraEmailInput.value = appState.settings.email || '';
         jiraTokenInput.value = appState.settings.token || '';
+        confluenceSpaceInput.value = appState.settings.confluenceSpace || '';
         modeToggle.checked = appState.settings.apiMode || false;
       } catch (e) {
         console.error('설정을 파싱하는 도중 에러가 발생했습니다.', e);
@@ -152,7 +173,7 @@ document.addEventListener('DOMContentLoaded', () => {
     renderMemberChips();
 
     updateConnectionStatusUI();
-
+    
     // 최초 실행 시 Mock 데이터로 화면 초기 채우기
     triggerFetch();
   }
@@ -161,7 +182,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function updateConnectionStatusUI() {
     const isApi = modeToggle.checked;
     appState.settings.apiMode = isApi;
-
+    
     if (isApi) {
       connectionStatusDot.classList.add('active');
       connectionStatusDot.style.backgroundColor = 'var(--color-success)';
@@ -180,7 +201,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // 등록된 팀원 목록 렌더링
   function renderRegisteredMembers() {
     registeredMemberList.innerHTML = '';
-
+    
     appState.registeredMembers.forEach((member) => {
       const li = document.createElement('li');
       li.className = 'member-list-item';
@@ -188,17 +209,17 @@ document.addEventListener('DOMContentLoaded', () => {
         <span>${member}</span>
         <button type="button" class="btn-remove-member" data-name="${member}">&times;</button>
       `;
-
+      
       // 삭제 버튼 이벤트 바인딩
       li.querySelector('.btn-remove-member').addEventListener('click', (e) => {
         const nameToRemove = e.target.getAttribute('data-name');
         appState.registeredMembers = appState.registeredMembers.filter(m => m !== nameToRemove);
         localStorage.setItem('workflow_registered_members', JSON.stringify(appState.registeredMembers));
-
+        
         renderRegisteredMembers();
         renderMemberChips();
       });
-
+      
       registeredMemberList.appendChild(li);
     });
   }
@@ -206,11 +227,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // 필터 조건 부분의 팀원 칩 목록 렌더링
   function renderMemberChips() {
     teamMemberChips.innerHTML = '';
-
+    
     // 현재 입력값 파싱
     const rawVal = teamMembersInput.value;
     const activeMembers = rawVal.split(',').map(m => m.trim()).filter(m => m.length > 0);
-
+    
     appState.registeredMembers.forEach((member) => {
       const chip = document.createElement('div');
       chip.className = 'member-chip';
@@ -218,12 +239,12 @@ document.addEventListener('DOMContentLoaded', () => {
         chip.classList.add('active');
       }
       chip.textContent = member;
-
+      
       // 칩 클릭 시 토글
       chip.addEventListener('click', () => {
         const currentVal = teamMembersInput.value;
         let members = currentVal.split(',').map(m => m.trim()).filter(m => m.length > 0);
-
+        
         if (members.includes(member)) {
           // 이미 존재하면 제거
           members = members.filter(m => m !== member);
@@ -231,13 +252,16 @@ document.addEventListener('DOMContentLoaded', () => {
           // 존재하지 않으면 추가
           members.push(member);
         }
-
+        
         teamMembersInput.value = members.join(', ');
         localStorage.setItem('workflow_filter_members', teamMembersInput.value);
         renderMemberChips();
+<<<<<<<< HEAD:backup-vanilla/app.js
         buildJql();
+========
+>>>>>>>> 4509221d855a70154aa7dea41fbcaad56f90c748:_legacy_backup/app.js
       });
-
+      
       teamMemberChips.appendChild(chip);
     });
   }
@@ -249,15 +273,15 @@ document.addEventListener('DOMContentLoaded', () => {
       alert('추가할 팀원 이름을 입력해 주세요.');
       return;
     }
-
+    
     if (appState.registeredMembers.includes(newName)) {
       alert('이미 등록된 팀원입니다.');
       return;
     }
-
+    
     appState.registeredMembers.push(newName);
     localStorage.setItem('workflow_registered_members', JSON.stringify(appState.registeredMembers));
-
+    
     newMemberInput.value = '';
     renderRegisteredMembers();
     renderMemberChips();
@@ -287,6 +311,7 @@ document.addEventListener('DOMContentLoaded', () => {
     appState.settings.url = jiraUrlInput.value.trim();
     appState.settings.email = jiraEmailInput.value.trim();
     appState.settings.token = jiraTokenInput.value.trim();
+    appState.settings.confluenceSpace = confluenceSpaceInput.value.trim();
     appState.settings.apiMode = modeToggle.checked;
 
     localStorage.setItem('workflow_jira_settings', JSON.stringify(appState.settings));
@@ -301,8 +326,9 @@ document.addEventListener('DOMContentLoaded', () => {
     appState.settings.url = jiraUrlInput.value.trim();
     appState.settings.email = jiraEmailInput.value.trim();
     appState.settings.token = jiraTokenInput.value.trim();
+    appState.settings.confluenceSpace = confluenceSpaceInput.value.trim();
     appState.settings.apiMode = modeToggle.checked;
-
+    
     // 로컬 스토리지에 현재 설정 즉시 보존
     localStorage.setItem('workflow_jira_settings', JSON.stringify(appState.settings));
 
@@ -326,11 +352,11 @@ document.addEventListener('DOMContentLoaded', () => {
   tabButtons.forEach(btn => {
     btn.addEventListener('click', (e) => {
       const targetTab = e.target.getAttribute('data-tab');
-
+      
       // 버튼 활성화 클래스 스위칭
       tabButtons.forEach(b => b.classList.remove('active'));
       e.target.classList.add('active');
-
+      
       // 콘텐츠 영역 스위칭
       tabContents.forEach(content => {
         if (content.id === targetTab) {
@@ -339,7 +365,7 @@ document.addEventListener('DOMContentLoaded', () => {
           content.classList.remove('active');
         }
       });
-
+      
       appState.activeTab = targetTab;
     });
   });
@@ -368,7 +394,7 @@ document.addEventListener('DOMContentLoaded', () => {
   btnDownloadReport.addEventListener('click', () => {
     let reportText = '';
     let filename = '';
-
+    
     if (appState.activeTab === 'tab-daily') {
       reportText = appState.reports.daily;
       filename = `Daily_Report_${appState.filters.dateStart}_to_${appState.filters.dateEnd}.md`;
@@ -388,6 +414,44 @@ document.addEventListener('DOMContentLoaded', () => {
     downloadFile(reportText, filename);
   });
 
+  // 컨플루언스 자동 업로드 및 등록 버튼
+  btnConfluencePublish.addEventListener('click', async () => {
+    let reportText = '';
+    let reportTitle = '';
+    
+    if (appState.activeTab === 'tab-daily') {
+      reportText = appState.reports.daily;
+      const todayStr = new Date().toISOString().split('T')[0];
+      reportTitle = `📅 [일일 업무 보고서] ${todayStr}`;
+    } else if (appState.activeTab === 'tab-weekly') {
+      reportText = appState.reports.weekly;
+      reportTitle = `📊 [주간 프로젝트 보고서] ${appState.filters.dateStart} ~ ${appState.filters.dateEnd}`;
+    } else {
+      alert('컨플루언스에 등록할 보고서 탭(일일 혹은 주간)을 선택해주세요.');
+      return;
+    }
+
+    if (!reportText) {
+      alert('등록할 보고서가 비어있습니다. 먼저 [티켓 가져오기]를 실행해 주세요.');
+      return;
+    }
+
+    // 마크다운을 컨플루언스용 HTML 스키마로 파싱
+    const htmlContent = parseMarkdownToHtml(reportText);
+
+    btnConfluencePublish.disabled = true;
+    const originText = btnConfluencePublish.innerHTML;
+    btnConfluencePublish.textContent = '게시 중...';
+
+    try {
+      await publishToConfluence(reportTitle, htmlContent);
+    } catch (err) {
+      console.error('Confluence publish trigger failed:', err);
+    } finally {
+      btnConfluencePublish.disabled = false;
+      btnConfluencePublish.innerHTML = originText;
+    }
+  });
 
   // ==========================================================================
   // 3. JQL 빌더 로직 및 데이터 가져오기 실행부
@@ -407,63 +471,117 @@ document.addEventListener('DOMContentLoaded', () => {
     buildJql();
   });
 
+  // JQL 빌더 (이번 주 조회용)
   function buildJql() {
     const projectKey = projectKeyInput.value.trim() || 'PROJ';
-
-    // 팀원 파싱
     const rawMembers = teamMembersInput.value.split(',');
     const members = rawMembers.map(m => m.trim()).filter(m => m.length > 0);
     appState.filters.teamMembers = members;
-
+    
     const start = dateStartInput.value;
     const end = dateEndInput.value;
-
+    
     appState.filters.projectKey = projectKey;
     appState.filters.dateStart = start;
     appState.filters.dateEnd = end;
 
-    // JQL 파트 조립
     let jql = `project = "${projectKey}"`;
-
     if (members.length > 0) {
-      // Jira ID나 이름을 인용부호로 묶어서 조립
       const membersQuery = members.map(m => `"${m}"`).join(', ');
       jql += ` AND assignee in (${membersQuery})`;
     }
-
     jql += ` AND status in ("In Progress", "Done", "Resolved", "To Do")`;
-
-    if (start) {
-      jql += ` AND updated >= "${start}"`;
-    }
-    if (end) {
-      jql += ` AND updated <= "${end} 23:59"`;
-    }
-
+    if (start) jql += ` AND updated >= "${start}"`;
+    if (end) jql += ` AND updated <= "${end} 23:59"`;
     jql += ` ORDER BY updated DESC`;
-
+    
     jqlCode.textContent = jql;
     return jql;
   }
 
-  function triggerFetch() {
+  // JQL 빌더 (다음 주 조회용)
+  function buildNextWeekJql() {
+    const projectKey = projectKeyInput.value.trim() || 'PROJ';
+    const rawMembers = teamMembersInput.value.split(',');
+    const members = rawMembers.map(m => m.trim()).filter(m => m.length > 0);
+    
+    const start = dateStartInput.value;
+    const end = dateEndInput.value;
+    
+    // 다음 주 날짜 범위 계산 (현재 범위 +7일)
+    const nextStart = new Date(start);
+    nextStart.setDate(nextStart.getDate() + 7);
+    const nextStartStr = nextStart.toISOString().split('T')[0];
+
+    const nextEnd = new Date(end);
+    nextEnd.setDate(nextEnd.getDate() + 7);
+    const nextEndStr = nextEnd.toISOString().split('T')[0];
+
+    let jql = `project = "${projectKey}"`;
+    if (members.length > 0) {
+      const membersQuery = members.map(m => `"${m}"`).join(', ');
+      jql += ` AND assignee in (${membersQuery})`;
+    }
+    jql += ` AND status in ("In Progress", "Done", "Resolved", "To Do")`;
+    jql += ` AND updated >= "${nextStartStr}"`;
+    jql += ` AND updated <= "${nextEndStr} 23:59"`;
+    jql += ` ORDER BY updated DESC`;
+    
+    return jql;
+  }
+
+  async function triggerFetch() {
     const jql = buildJql();
+    const nextJql = buildNextWeekJql();
+    
     btnFetch.disabled = true;
     btnFetch.textContent = '불러오는 중...';
 
+    // 다음 주 날짜 문자열 계산
+    const start = dateStartInput.value;
+    const end = dateEndInput.value;
+    const nextStart = new Date(start);
+    nextStart.setDate(nextStart.getDate() + 7);
+    const nextStartStr = nextStart.toISOString().split('T')[0];
+    const nextEnd = new Date(end);
+    nextEnd.setDate(nextEnd.getDate() + 7);
+    const nextEndStr = nextEnd.toISOString().split('T')[0];
+
     if (appState.settings.apiMode) {
-      // 실제 Jira API 호출
-      fetchJiraTickets(jql);
+      try {
+        connectionStatusText.textContent = '이번 주 데이터 로드 중...';
+        const currentTickets = await fetchJiraTickets(jql);
+        
+        connectionStatusText.textContent = '다음 주 계획 데이터 로드 중...';
+        const nextTickets = await fetchJiraTickets(nextJql);
+        
+        processFetchedData(currentTickets, nextTickets);
+        connectionStatusText.textContent = `Jira API 연동 완료 (이번 주 ${currentTickets.length}건 / 다음 주 ${nextTickets.length}건)`;
+      } catch (err) {
+        console.error('Jira API fetch error:', err);
+        alert(`[Jira API 연동 실패]\n서버 응답 오류 혹은 설정값 오류가 발생했습니다.\n\n오류 내용: ${err.message}\n\n입력하신 Jira URL, 이메일, API Token이 정확한지 다시 한번 확인해주세요.`);
+        connectionStatusDot.style.backgroundColor = 'var(--color-danger)';
+        connectionStatusText.textContent = `연동 실패 (${err.message})`;
+      } finally {
+        btnFetch.disabled = false;
+        btnFetch.textContent = '티켓 가져오기';
+      }
     } else {
       // 시뮬레이션 모드 (더미 데이터 생성)
       setTimeout(() => {
         const mockTickets = generateMockTickets(
-            appState.filters.projectKey,
-            appState.filters.teamMembers,
-            appState.filters.dateStart,
-            appState.filters.dateEnd
+          appState.filters.projectKey,
+          appState.filters.teamMembers,
+          appState.filters.dateStart,
+          appState.filters.dateEnd
         );
-        processFetchedData(mockTickets);
+        const nextMockTickets = generateMockTickets(
+          appState.filters.projectKey,
+          appState.filters.teamMembers,
+          nextStartStr,
+          nextEndStr
+        );
+        processFetchedData(mockTickets, nextMockTickets);
         btnFetch.disabled = false;
         btnFetch.textContent = '티켓 가져오기';
       }, 500);
@@ -480,15 +598,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const token = appState.settings.token;
 
     if (!url || !email || !token) {
-      alert('실제 API 모드를 사용하려면 Jira URL, 이메일, API Token 설정을 저장하셔야 합니다.\n현재 설정을 확인해주세요.');
-      modeToggle.checked = false;
-      updateConnectionStatusUI();
-      triggerFetch();
-      return;
+      throw new Error('Jira API 설정 정보가 누락되었습니다.');
     }
 
     const credential = btoa(`${email}:${token}`);
-
+    
     let cleanUrl = url.trim();
     try {
       if (cleanUrl.toLowerCase().startsWith('http')) {
@@ -498,24 +612,21 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (e) {
       console.warn('Jira URL 호스트 추출 실패, 원본 유지:', e);
     }
-
-    // 페이지네이션 루프 변수 설정
+    
     let allIssues = [];
     let startAt = 0;
     let isLastPage = false;
     const limit = 100;
-
-    try {
-      connectionStatusText.textContent = 'Jira 연결 중...';
-
+      
+<<<<<<<< HEAD:backup-vanilla/app.js
       while (!isLastPage) {
         // Jira Cloud API Search 엔드포인트 조립 (maxResults와 startAt 포함)
         const targetUrl = `${cleanUrl.replace(/\/$/, '')}/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=key,summary,status,assignee,updated&maxResults=${limit}&startAt=${startAt}`;
-        const origin = (window.location.protocol === 'http:' || window.location.protocol === 'https:')
-            ? window.location.origin
-            : 'http://localhost:8080';
+        const origin = (window.location.protocol === 'http:' || window.location.protocol === 'https:') 
+          ? window.location.origin 
+          : 'http://localhost:8080';
         const apiEndpoint = `${origin}/?url=${encodeURIComponent(targetUrl)}`;
-
+        
         console.log(`[Jira Fetch] Fetching page starting at ${startAt}...`);
         const response = await fetch(apiEndpoint, {
           method: 'GET',
@@ -528,70 +639,168 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!response.ok) {
           throw new Error(`HTTP 에러! 상태코드: ${response.status}`);
+========
+    while (!isLastPage) {
+      const targetUrl = `${cleanUrl.replace(/\/$/, '')}/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=key,summary,status,assignee,updated&maxResults=${limit}&startAt=${startAt}`;
+      const apiEndpoint = `http://localhost:8080/?url=${encodeURIComponent(targetUrl)}`;
+      
+      console.log(`[Jira Fetch] Fetching page starting at ${startAt}...`);
+      const response = await fetch(apiEndpoint, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Basic ${credential}`,
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+>>>>>>>> 4509221d855a70154aa7dea41fbcaad56f90c748:_legacy_backup/app.js
         }
+      });
 
-        const contentType = response.headers.get('content-type') || '';
-        if (!contentType.includes('application/json')) {
-          const textError = await response.text();
-          console.warn('비JSON 응답 감지:', textError.substring(0, 300));
-          throw new Error('Jira 서버가 JSON 대신 HTML 페이지를 반환했습니다. 이메일/토큰 정보가 잘못되었거나 URL 주소 형식이 올바르지 않습니다.');
-        }
-
-        const data = await response.json();
-        const pageIssues = data.issues || [];
-        allIssues = allIssues.concat(pageIssues);
-
-        const totalCount = data.total || 0;
-        connectionStatusText.textContent = `티켓 로드 중... (${allIssues.length}/${totalCount}건 완료)`;
-
-        // 페이지네이션 인덱스 증가
-        startAt += pageIssues.length;
-
-        // 루프 탈출 조건 검사
-        if (pageIssues.length === 0 || allIssues.length >= totalCount) {
-          isLastPage = true;
-        }
+      if (!response.ok) {
+        throw new Error(`HTTP 에러! 상태코드: ${response.status}`);
       }
 
-      console.log(`[Jira Fetch] Successfully fetched all ${allIssues.length} tickets.`);
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        throw new Error('Jira 서버가 JSON 대신 올바르지 않은 타입의 문서를 반환했습니다.');
+      }
 
-      // 디버깅용: 지라가 돌려준 티켓들의 실제 담당자 프로필 이름 전체 출력
-      console.log('--- [Jira 연동 디버깅] 지라 서버가 반환한 실제 담당자(Assignee) 목록 ---');
-      allIssues.forEach(issue => {
-        const key = issue.key;
-        const disp = issue.fields?.assignee?.displayName || '담당자 미지정';
-        const name = issue.fields?.assignee?.name || 'name 정보 없음';
-        const email = issue.fields?.assignee?.emailAddress || '이메일 없음';
-        console.log(`티켓: ${key} | 지라 프로필 실명: "${disp}" | 시스템 ID: "${name}" | 이메일: ${email}`);
+      const data = await response.json();
+      const pageIssues = data.issues || [];
+      allIssues = allIssues.concat(pageIssues);
+      
+      const totalCount = data.total || 0;
+      connectionStatusText.textContent = `티켓 수집 중... (${allIssues.length}/${totalCount}건)`;
+      
+      startAt += pageIssues.length;
+      
+      if (pageIssues.length === 0 || allIssues.length >= totalCount) {
+        isLastPage = true;
+      }
+    }
+
+    console.log(`[Jira Fetch] Successfully fetched all ${allIssues.length} tickets.`);
+
+    // 디버깅용: 지라가 돌려준 티켓들의 실제 담당자 프로필 이름 전체 출력
+    console.log('--- [Jira 연동 디버깅] 지라 서버가 반환한 실제 담당자(Assignee) 목록 ---');
+    allIssues.forEach(issue => {
+      const key = issue.key;
+      const disp = issue.fields?.assignee?.displayName || '담당자 미지정';
+      const name = issue.fields?.assignee?.name || 'name 정보 없음';
+      const email = issue.fields?.assignee?.emailAddress || '이메일 없음';
+      console.log(`티켓: ${key} | 지라 프로필 실명: "${disp}" | 시스템 ID: "${name}" | 이메일: ${email}`);
+    });
+    console.log('------------------------------------------------------------------');
+
+    // 수집된 모든 티켓 포맷 가공 및 반환
+    return allIssues.map(issue => {
+      return {
+        key: issue.key || '',
+        summary: issue.fields?.summary || '제목 없음',
+        status: issue.fields?.status ? (issue.fields.status.name || 'To Do') : 'To Do',
+        assignee: issue.fields?.assignee ? (issue.fields.assignee.displayName || issue.fields.assignee.name || '미지정') : '미지정',
+        updated: issue.fields?.updated ? issue.fields.updated.substring(0, 10) : ''
+      };
+    });
+  }
+
+  // ==========================================================================
+  // 5. Confluence API 연동 페이지 게시 함수
+  // ==========================================================================
+
+  async function publishToConfluence(title, htmlContent) {
+    const url = appState.settings.url;
+    const email = appState.settings.email;
+    const token = appState.settings.token;
+    const spaceKey = appState.settings.confluenceSpace;
+
+    if (!spaceKey) {
+      alert('컨플루언스에 등록하려면 설정 패널에서 "Confluence Space Key"를 반드시 입력하고 저장하셔야 합니다.');
+      throw new Error('Confluence Space Key 정보 누락');
+    }
+
+    // 1. 시뮬레이션 모드 (데모 기동)
+    if (!appState.settings.apiMode) {
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          const fakeBase = url ? url.trim().replace(/\/$/, '') : 'https://ikoobdoc.atlassian.net';
+          const fakeLink = `${fakeBase}/wiki/spaces/${spaceKey.toUpperCase()}/pages/${Math.floor(Math.random() * 90000000) + 10000000}`;
+          
+          alert(`[컨플루언스 등록 시뮬레이션 완료!]\n\n공간(Space): ${spaceKey.toUpperCase()}\n제목: ${title}\n\n등록된 페이지 주소 (클릭 시 이동 가능):\n${fakeLink}`);
+          window.open(fakeLink, '_blank');
+          resolve({ webLink: fakeLink });
+        }, 800);
       });
-      console.log('------------------------------------------------------------------');
+    }
 
-      // 수집된 모든 티켓 포맷 가공
-      const tickets = allIssues.map(issue => {
-        return {
-          key: issue.key || '',
-          summary: issue.fields?.summary || '제목 없음',
-          status: issue.fields?.status ? (issue.fields.status.name || 'To Do') : 'To Do',
-          assignee: issue.fields?.assignee ? (issue.fields.assignee.displayName || issue.fields.assignee.name || '미지정') : '미지정',
-          updated: issue.fields?.updated ? issue.fields.updated.substring(0, 10) : ''
-        };
+    // 2. 실제 API 모드 동작
+    if (!url || !email || !token) {
+      alert('실제 API 모드를 사용하려면 Jira URL, 이메일, API Token 설정을 입력하고 저장해 주세요.');
+      throw new Error('API Credentials missing');
+    }
+
+    const credential = btoa(`${email}:${token}`);
+    
+    let cleanUrl = url.trim();
+    try {
+      if (cleanUrl.toLowerCase().startsWith('http')) {
+        const urlObj = new URL(cleanUrl);
+        cleanUrl = `${urlObj.protocol}//${urlObj.host}`;
+      }
+    } catch (e) {
+      console.warn('Confluence Host 추출 실패, 원본 유지:', e);
+    }
+
+    // Confluence v1 Content API 엔드포인트 조립
+    const targetUrl = `${cleanUrl.replace(/\/$/, '')}/wiki/rest/api/content`;
+    const proxyEndpoint = `http://localhost:8080/?url=${encodeURIComponent(targetUrl)}`;
+
+    const requestBody = {
+      type: 'page',
+      title: title,
+      space: {
+        key: spaceKey.toUpperCase()
+      },
+      body: {
+        storage: {
+          value: htmlContent,
+          representation: 'storage'
+        }
+      }
+    };
+
+    try {
+      const response = await fetch(proxyEndpoint, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Basic ${credential}`,
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(requestBody)
       });
 
-      processFetchedData(tickets);
-      connectionStatusText.textContent = `Jira API 연동 완료 (총 ${tickets.length}건)`;
+      if (!response.ok) {
+        const errBody = await response.text();
+        console.error('Confluence Publish Error Body:', errBody);
+        throw new Error(`컨플루언스 서버 응답 에러 (상태코드: ${response.status})`);
+      }
+
+      const data = await response.json();
+      const baseUrl = cleanUrl.replace(/\/$/, '');
+      const webui = data._links?.webui || '';
+      const docLink = `${baseUrl}/wiki${webui}`;
+
+      alert(`[컨플루언스 등록 성공!]\n\nConfluence에 문서가 성공적으로 발행되었습니다.\n\n확인 주소 (새 창으로 이동):\n${docLink}`);
+      window.open(docLink, '_blank');
+      return data;
     } catch (err) {
-      console.error('Jira API fetch error:', err);
-      alert(`[Jira API 연동 실패]\n서버 응답 오류 혹은 설정값 오류가 발생했습니다.\n\n오류 내용: ${err.message}\n\n입력하신 Jira URL, 이메일, API Token이 정확한지 다시 한번 확인해주세요.`);
-      connectionStatusDot.style.backgroundColor = 'var(--color-danger)';
-      connectionStatusText.textContent = `연동 실패 (${err.message})`;
-    } finally {
-      btnFetch.disabled = false;
-      btnFetch.textContent = '티켓 가져오기';
+      alert(`[컨플루언스 게시 실패]\nAPI 호출 중 오류가 발생했습니다.\n\n오류: ${err.message}\n\n도메인 주소 설정이나 Space Key가 실제 컨플루언스 공간과 일치하는지 확인해 주세요.`);
+      throw err;
     }
   }
 
   // ==========================================================================
-  // 5. Mock 데이터 생성기 (시뮬레이터)
+  // 6. Mock 데이터 생성기 (시뮬레이터)
   // ==========================================================================
 
   function generateMockTickets(projectKey, members, start, end) {
@@ -613,7 +822,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const statusOptions = ['Done', 'In Progress', 'To Do'];
     const tickets = [];
-
+    
     // 날짜 배열 계산
     const dateArray = [];
     let currentDate = new Date(start);
@@ -628,7 +837,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const targetMembers = members.length > 0 ? members : ['홍길동', '김철수', '이영희'];
 
     let keyCounter = 101;
-
+    
     // 더미 티켓 대량 생성
     targetMembers.forEach((member) => {
       // 멤버당 2 ~ 4개의 티켓 할당
@@ -653,10 +862,10 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ==========================================================================
-  // 6. 데이터 분석 및 통계 계산
+  // 7. 데이터 분석 및 통계 계산
   // ==========================================================================
 
-  function processFetchedData(tickets) {
+  function processFetchedData(tickets, nextTickets = []) {
     appState.fetchedTickets = tickets;
 
     // 통계 계산
@@ -673,7 +882,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // 원형 차트 비율 계산 및 그리기
     const donePercent = total > 0 ? Math.round((done / total) * 100) : 0;
     const progressPercent = total > 0 ? Math.round((progress / total) * 100) : 0;
-
+    
     chartPie.style.setProperty('--p-done', `${donePercent}%`);
     chartPie.style.setProperty('--p-progress', `${progressPercent}%`);
 
@@ -698,7 +907,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 2. 보고서 템플릿 조립 및 렌더링
     generateDailyStandupReport(tickets);
-    generateWeeklyReport(tickets);
+    generateWeeklyReport(tickets, nextTickets);
   }
 
   function renderRawTicketTable(tickets) {
@@ -726,7 +935,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ==========================================================================
-  // 7. 업무 보고서 컴포저 (Markdown 빌더)
+  // 8. 업무 보고서 컴포저 (Markdown 빌더)
   // ==========================================================================
 
   // 일일 Standup 보고서 컴포저
@@ -737,16 +946,16 @@ document.addEventListener('DOMContentLoaded', () => {
     let md = `# 📅 일일 업무 STAND-UP 보고서\n\n`;
     md += `> **보고 기간**: ${start} ~ ${end}\n`;
     md += `> **생성 일시**: ${new Date().toLocaleString('ko-KR')}\n\n`;
-
+    
     // 담당자별 정렬
     const members = [...new Set(tickets.map(t => t.assignee))];
-
+    
     if (members.length === 0) {
       md += `조회 기간 내 진행 중이거나 완료된 티켓이 없습니다.\n`;
     } else {
       members.forEach(member => {
         md += `## 👤 담당자: ${member}\n\n`;
-
+        
         const memberTickets = tickets.filter(t => t.assignee === member);
         const completed = memberTickets.filter(t => getStatusCategory(t.status) === 'Done');
         const progressing = memberTickets.filter(t => getStatusCategory(t.status) === 'In Progress');
@@ -788,13 +997,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     appState.reports.daily = md;
-
+    
     // 미리보기에 렌더링
     dailyPreview.innerHTML = parseMarkdownToHtml(md);
   }
 
   // 주간 업무 보고서 컴포저
-  function generateWeeklyReport(tickets) {
+  function generateWeeklyReport(tickets, nextTickets = []) {
     const start = appState.filters.dateStart;
     const end = appState.filters.dateEnd;
     const total = tickets.length;
@@ -807,7 +1016,7 @@ document.addEventListener('DOMContentLoaded', () => {
     md += `* **작성 일자**: ${new Date().toLocaleDateString('ko-KR')}\n`;
     md += `* **대상 기간**: ${start} ~ ${end}\n`;
     md += `* **프로젝트 코드**: \`${appState.filters.projectKey}\`\n\n`;
-
+    
     md += `### 📈 2. 이번 주 진행 상태 메트릭스\n\n`;
     md += `| 티켓 상태 | 건수 | 완료율 / 비율 |\n`;
     md += `| :--- | :---: | :---: |\n`;
@@ -817,7 +1026,7 @@ document.addEventListener('DOMContentLoaded', () => {
     md += `| **합계 (Total)** | **${total}건** | **100%** |\n\n`;
 
     md += `## 📋 3. 팀원별 상세 업무 진행 현황\n\n`;
-
+    
     const members = [...new Set(tickets.map(t => t.assignee))];
     if (members.length === 0) {
       md += `* 조회 기간 내 상세 티켓 내역이 없습니다.\n`;
@@ -825,14 +1034,14 @@ document.addEventListener('DOMContentLoaded', () => {
       members.forEach(member => {
         md += `### 👤 담당자: ${member}\n`;
         const memberTickets = tickets.filter(t => t.assignee === member);
-
+        
         if (memberTickets.length === 0) {
           md += `* 진행한 티켓이 없습니다.\n`;
         } else {
           memberTickets.forEach(t => {
             const cat = getStatusCategory(t.status);
-            const statusIndicator = (cat === 'Done') ? '✅' :
-                (cat === 'In Progress') ? '🔄' : '⏱️';
+            const statusIndicator = (cat === 'Done') ? '✅' : 
+                                    (cat === 'In Progress') ? '🔄' : '⏱️';
             md += `* ${statusIndicator} **[${t.key}]** ${t.summary} (\`${t.status}\`, 업데이트: ${t.updated})\n`;
           });
         }
@@ -841,17 +1050,33 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     md += `## 🚀 4. 다음 주 주요 계획 및 이슈 사항\n\n`;
-    md += `* **마일스톤 점검**: 예정된 티켓 중 우선순위가 높은 이슈에 대한 우선 개발 진행.\n`;
-    md += `* **장애 요인**: 시뮬레이션 및 API 연결 환경 설정 시 CORS 발생 우려에 대비해 로컬 노드 프록시 준비 권장.\n`;
+    
+    if (nextTickets.length === 0) {
+      md += `* **마일스톤 점검**: 다음 주 예정된 지라 티켓이 등록되어 있지 않거나 계획을 불러올 수 없습니다.\n`;
+      md += `* **장애 요인**: 예정된 주요 마일스톤에 지연 요소가 없는지 리스크 사전 점검.\n`;
+    } else {
+      // 다음 주 티켓을 분석하여 담당자별로 동적인 주간 계획표 완성
+      const nextMembers = [...new Set(nextTickets.map(t => t.assignee))];
+      nextMembers.forEach(member => {
+        md += `### 👤 담당자: ${member} 계획\n`;
+        const memberNext = nextTickets.filter(t => t.assignee === member);
+        memberNext.forEach(t => {
+          const cat = getStatusCategory(t.status);
+          const stateSymbol = cat === 'Done' ? '🟢 [완료예정]' : cat === 'In Progress' ? '🔄 [진행예정]' : '⏱️ [할일]';
+          md += `* ${stateSymbol} **[${t.key}]** ${t.summary} (\`${t.status}\`)\n`;
+        });
+        md += `\n`;
+      });
+    }
 
     appState.reports.weekly = md;
-
+    
     // 미리보기에 렌더링
     weeklyPreview.innerHTML = parseMarkdownToHtml(md);
   }
 
   // ==========================================================================
-  // 8. 텍스트 마크다운 -> HTML 변환 (보안 및 프리미엄 뷰어용 간이 파서)
+  // 9. 텍스트 마크다운 -> HTML 변환 (보안 및 프리미엄 뷰어용 간이 파서)
   // ==========================================================================
 
   function parseMarkdownToHtml(markdown) {
@@ -879,7 +1104,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const lines = html.split('\n');
     let inTable = false;
     let tableHtml = '';
-
+    
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim();
       if (line.startsWith('|') && line.endsWith('|')) {
@@ -887,7 +1112,7 @@ document.addEventListener('DOMContentLoaded', () => {
           inTable = true;
           tableHtml = '<table>';
         }
-
+        
         // 헤더 구분선 무시
         if (line.includes('---')) {
           lines[i] = '';
@@ -896,13 +1121,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const cols = line.split('|').map(c => c.trim()).filter((c, idx, arr) => idx > 0 && idx < arr.length - 1);
         const tag = tableHtml.includes('<th>') ? 'td' : 'th';
-
+        
         tableHtml += '<tr>';
         cols.forEach(col => {
           tableHtml += `<${tag}>${col}</${tag}>`;
         });
         tableHtml += '</tr>';
-
+        
         lines[i] = ''; // 원본 대체
       } else {
         if (inTable) {
@@ -934,7 +1159,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ==========================================================================
-  // 9. 보조 유틸리티 (클립보드 복사 & 다운로드)
+  // 10. 보조 유틸리티 (클립보드 복사 & 다운로드)
   // ==========================================================================
 
   function copyToClipboard(text, successMessage) {
@@ -956,24 +1181,24 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     navigator.clipboard.writeText(text)
-        .then(() => {
-          alert(successMessage);
-        })
-        .catch(err => {
-          console.error('클립보드 복사 실패:', err);
-          alert('클립보드 복사 중 오류가 발생했습니다.');
-        });
+      .then(() => {
+        alert(successMessage);
+      })
+      .catch(err => {
+        console.error('클립보드 복사 실패:', err);
+        alert('클립보드 복사 중 오류가 발생했습니다.');
+      });
   }
 
   function downloadFile(content, filename) {
     const blob = new Blob([content], { type: 'text/markdown;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-
+    
     link.href = url;
     link.setAttribute('download', filename);
     link.style.visibility = 'hidden';
-
+    
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
