@@ -15,10 +15,11 @@ export function analyzeMonthlyPerformance(tickets) {
     };
   }
 
-  // 날짜별로 그룹화
+  // 날짜별로 그룹화 (created 우선, fallback으로 updated)
   const ticketsByMonth = groupBy(tickets, (ticket) => {
-    if (!ticket.updated) return 'unknown';
-    return format(parseISO(ticket.updated), 'yyyy-MM');
+    const dateStr = ticket.created || ticket.updated;
+    if (!dateStr) return 'unknown';
+    return format(parseISO(dateStr), 'yyyy-MM');
   });
 
   // 담당자별로 그룹화
@@ -82,16 +83,27 @@ export function analyzeMonthlyPerformance(tickets) {
 /**
  * 시계열 차트용 데이터 생성
  * @param {Array} tickets - Jira 티켓 배열
- * @param {number} monthsBack - 조회할 과거 월 수
+ * @param {number} monthsBack - 조회할 과거 월 수 (dateStart/dateEnd가 없을 때 fallback)
+ * @param {string} [dateStart] - 시작 날짜 (yyyy-MM-dd)
+ * @param {string} [dateEnd] - 종료 날짜 (yyyy-MM-dd)
  * @returns {Array} 차트용 데이터
  */
-export function generateTimeSeriesData(tickets, monthsBack = 6) {
+export function generateTimeSeriesData(tickets, monthsBack = 6, dateStart, dateEnd) {
   if (!tickets || tickets.length === 0) return [];
 
-  const endDate = new Date();
-  const startDate = subMonths(endDate, monthsBack - 1);
+  let chartStartDate, chartEndDate;
+
+  if (dateStart && dateEnd) {
+    // 사용자가 지정한 기간 사용
+    chartStartDate = startOfMonth(parseISO(dateStart));
+    chartEndDate = endOfMonth(parseISO(dateEnd));
+  } else {
+    // fallback: 오늘 기준 최근 N개월
+    chartEndDate = endOfMonth(new Date());
+    chartStartDate = startOfMonth(subMonths(new Date(), monthsBack - 1));
+  }
   
-  const months = eachMonthOfInterval({ start: startOfMonth(startDate), end: endOfMonth(endDate) });
+  const months = eachMonthOfInterval({ start: chartStartDate, end: chartEndDate });
   
   // 모든 담당자 추출
   const allAssignees = [...new Set(tickets.map(t => t.assignee))];
@@ -108,8 +120,9 @@ export function generateTimeSeriesData(tickets, monthsBack = 6) {
     
     allAssignees.forEach(assignee => {
       const assigneeTickets = tickets.filter(t => {
-        if (!t.updated) return false;
-        const ticketMonth = format(parseISO(t.updated), 'yyyy-MM');
+        const dateStr = t.created || t.updated;
+        if (!dateStr) return false;
+        const ticketMonth = format(parseISO(dateStr), 'yyyy-MM');
         return ticketMonth === monthKey && t.assignee === assignee;
       });
       
@@ -132,8 +145,9 @@ export function predictNextMonth(tickets) {
 
   const last3Months = subMonths(new Date(), 3);
   const recentTickets = tickets.filter(t => {
-    if (!t.updated) return false;
-    const ticketDate = parseISO(t.updated);
+    const dateStr = t.created || t.updated;
+    if (!dateStr) return false;
+    const ticketDate = parseISO(dateStr);
     return ticketDate >= last3Months;
   });
 

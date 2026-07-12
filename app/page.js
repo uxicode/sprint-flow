@@ -25,6 +25,14 @@ export default function Home() {
   const [dateStart, setDateStart] = useState('');
   const [dateEnd, setDateEnd] = useState('');
 
+  // 실적 분석 별도 필터 및 데이터 상태
+  const [analyticsProjectKey, setAnalyticsProjectKey] = useState('DI26');
+  const [analyticsTeamMembers, setAnalyticsTeamMembers] = useState('');
+  const [analyticsDateStart, setAnalyticsDateStart] = useState('');
+  const [analyticsDateEnd, setAnalyticsDateEnd] = useState('');
+  const [analyticsTickets, setAnalyticsTickets] = useState([]);
+  const [isAnalyticsLoading, setIsAnalyticsLoading] = useState(false);
+
   // 대시보드 데이터 및 탭 상태
   const [activeTab, setActiveTab] = useState('tab-daily');
   const [tickets, setTickets] = useState([]);
@@ -61,6 +69,11 @@ export default function Home() {
     const fridayStr = friday.toISOString().split('T')[0];
     setDateStart(mondayStr);
     setDateEnd(fridayStr);
+
+    // 실적 분석 디폴트 기간 설정: 올해 1월 1일 ~ 올해 12월 31일
+    const thisYear = new Date().getFullYear();
+    setAnalyticsDateStart(`${thisYear}-01-01`);
+    setAnalyticsDateEnd(`${thisYear}-12-31`);
 
     // 1-1. 지라 API 설정 복구
     const savedSettings = localStorage.getItem('workflow_jira_settings');
@@ -154,6 +167,22 @@ export default function Home() {
     return jql;
   };
 
+  const getAnalyticsJql = () => {
+    const proj = analyticsProjectKey.trim() || 'PROJ';
+    const members = analyticsTeamMembers.split(',').map(m => m.trim()).filter(m => m.length > 0);
+
+    let jql = `project = "${proj}"`;
+    if (members.length > 0) {
+      const membersQuery = members.map(m => `"${m}"`).join(', ');
+      jql += ` AND assignee in (${membersQuery})`;
+    }
+    jql += ` AND status in ("In Progress", "Done", "Resolved", "To Do")`;
+    if (analyticsDateStart) jql += ` AND created >= "${analyticsDateStart}"`;
+    if (analyticsDateEnd) jql += ` AND created <= "${analyticsDateEnd} 23:59"`;
+    jql += ` ORDER BY created DESC`;
+    return jql;
+  };
+
   const getNextWeekJql = () => {
     const proj = projectKey.trim() || 'PROJ';
     const members = teamMembers.split(',').map(m => m.trim()).filter(m => m.length > 0);
@@ -200,15 +229,20 @@ export default function Home() {
     }
 
     let allIssues = [];
-    let startAt = 0;
-    let isLastPage = false;
     const limit = 100;
+    let pageCount = 0;
+    const maxPages = 20; // 안전 한계 (최대 2000건)
+    let nextPageToken = null; // 커서 기반 페이지네이션
 
-    while (!isLastPage) {
-      const targetUrl = `${cleanUrl.replace(/\/$/, '')}/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=key,summary,status,assignee,updated&maxResults=${limit}&startAt=${startAt}`;
+    while (pageCount < maxPages) {
+      // GET /rest/api/3/search/jql — 커서(nextPageToken) 기반 페이지네이션
+      let targetUrl = `${cleanUrl.replace(/\/$/, '')}/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=key,summary,status,assignee,updated,created&maxResults=${limit}`;
+      if (nextPageToken) {
+        targetUrl += `&nextPageToken=${encodeURIComponent(nextPageToken)}`;
+      }
       const apiEndpoint = `/api/proxy?url=${encodeURIComponent(targetUrl)}`;
 
-      console.log(`[Jira Fetch] Next.js route proxy 호출 starting at ${startAt}...`);
+      console.log(`[Jira Fetch] GET /search/jql | page ${pageCount + 1}${nextPageToken ? ` | token: ${nextPageToken}` : ''}...`);
       const response = await fetch(apiEndpoint, {
         method: 'GET',
         headers: {
@@ -229,24 +263,37 @@ export default function Home() {
 
       const data = await response.json();
       const pageIssues = data.issues || [];
-      allIssues = allIssues.concat(pageIssues);
 
-      const totalCount = data.total || 0;
-      setConnectionStatus({ dot: 'success', text: `티켓 수집 중... (${allIssues.length}/${totalCount}건)` });
-
-      startAt += pageIssues.length;
-
-      if (pageIssues.length === 0 || allIssues.length >= totalCount) {
-        isLastPage = true;
+      // 가져온 데이터가 없으면 즉시 중단
+      if (pageIssues.length === 0) {
+        break;
       }
+
+      allIssues = allIssues.concat(pageIssues);
+      pageCount++;
+
+      console.log(`[Jira API Fetch] page ${pageCount} | ${pageIssues.length}건 | 누적: ${allIssues.length}건 | nextPageToken: ${data.nextPageToken || '없음(마지막)'}`);
+      setConnectionStatus({ dot: 'success', text: `티켓 수집 중... (${allIssues.length}건)` });
+
+      // 다음 페이지 토큰이 없으면 마지막 페이지
+      if (!data.nextPageToken) {
+        break;
+      }
+      nextPageToken = data.nextPageToken;
     }
+
+    if (pageCount >= maxPages) {
+      console.warn(`[Jira API Fetch] 안전 한계(${maxPages}페이지)에 도달, 수집 종료.`);
+    }
+    console.log(`[Jira API Fetch] 수집 완료: 총 ${allIssues.length}건 (${pageCount}페이지)`);
 
     return allIssues.map(issue => ({
       key: issue.key || '',
       summary: issue.fields?.summary || '제목 없음',
       status: issue.fields?.status ? (issue.fields.status.name || 'To Do') : 'To Do',
       assignee: issue.fields?.assignee ? (issue.fields.assignee.displayName || issue.fields.assignee.name || '미지정') : '미지정',
-      updated: issue.fields?.updated ? issue.fields.updated.substring(0, 10) : ''
+      updated: issue.fields?.updated ? issue.fields.updated.substring(0, 10) : '',
+      created: issue.fields?.created ? issue.fields.created.substring(0, 10) : ''
     }));
   };
 
@@ -289,12 +336,20 @@ export default function Home() {
     targetMembers.forEach((member) => {
       // 멤버 고유 씨드값을 이름 문자 코드로 계산하여 고정된 결정적 티켓 데이터 보장
       const memberSeed = member.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-      const ticketCount = 3; // 인당 3개 고정 생산
+      
+      // 조회 기간의 일 수에 따라 티켓 수를 유연하게 설정 (실적 분석 같이 긴 기간이면 20개, 일반 보고서면 3개)
+      const isLongRange = dateArray.length > 30;
+      const ticketCount = isLongRange ? 20 : 3;
 
       for (let i = 0; i < ticketCount; i++) {
         const dummySummary = dummyTaskPool[(memberSeed + i) % dummyTaskPool.length];
         const dummyStatus = statusOptions[i % statusOptions.length];
-        const dummyDate = dateArray[i % dateArray.length];
+        
+        // 날짜가 고르게 분포하도록 인덱스 계산
+        const dateIndex = isLongRange 
+          ? Math.floor((i * dateArray.length) / ticketCount)
+          : (i % dateArray.length);
+        const dummyDate = dateArray[dateIndex];
 
         result.push({
           key: `${projKey}-${keyCounter++}`,
@@ -314,6 +369,11 @@ export default function Home() {
   // --------------------------------------------------------------------------
   const triggerInitialFetch = async (params) => {
     setIsLoading(true);
+    setIsAnalyticsLoading(true);
+
+    const thisYear = new Date().getFullYear();
+    const startOfYear = `${thisYear}-01-01`;
+    const endOfYear = `${thisYear}-12-31`;
 
     if (params.apiMode) {
       const proj = params.projectKey.trim() || 'PROJ';
@@ -346,6 +406,16 @@ export default function Home() {
       nextJql += ` AND updated <= "${nextEndStr} 23:59"`;
       nextJql += ` ORDER BY updated DESC`;
 
+      let analyticsJql = `project = "${proj}"`;
+      if (members.length > 0) {
+        const membersQuery = members.map(m => `"${m}"`).join(', ');
+        analyticsJql += ` AND assignee in (${membersQuery})`;
+      }
+      analyticsJql += ` AND status in ("In Progress", "Done", "Resolved", "To Do")`;
+      analyticsJql += ` AND updated >= "${startOfYear}"`;
+      analyticsJql += ` AND updated <= "${endOfYear} 23:59"`;
+      analyticsJql += ` ORDER BY updated DESC`;
+
       try {
         setConnectionStatus({ dot: 'success', text: '초기 로드: 이번 주 데이터 수집 중...' });
         const currentData = await fetchJiraTickets(jql, params.url, params.email, params.token);
@@ -353,12 +423,16 @@ export default function Home() {
         setConnectionStatus({ dot: 'success', text: '초기 로드: 다음 주 계획 수집 중...' });
         const nextData = await fetchJiraTickets(nextJql, params.url, params.email, params.token);
 
+        setConnectionStatus({ dot: 'success', text: '초기 로드: 실적 분석 데이터 수집 중...' });
+        const analyticsData = await fetchJiraTickets(analyticsJql, params.url, params.email, params.token);
+
         setTickets(currentData);
         setNextTickets(nextData);
+        setAnalyticsTickets(analyticsData);
         processReportData(currentData, nextData, params.start, params.end, params.projectKey);
         setConnectionStatus({
           dot: 'success',
-          text: `Jira API 연동 완료 (이번 주 ${currentData.length}건 / 다음 주 ${nextData.length}건)`
+          text: `Jira API 연동 완료 (이번 주 ${currentData.length}건 / 다음 주 ${nextData.length}건 / 실적분석 ${analyticsData.length}건)`
         });
       } catch (err) {
         console.error('초기 로딩 지라 API 에러:', err);
@@ -367,11 +441,14 @@ export default function Home() {
         // 폴백으로 Mock 데이터 제공
         const mock = generateMockTickets(params.projectKey, params.teamMembers, params.start, params.end);
         const nextMock = generateMockTickets(params.projectKey, params.teamMembers, nextStartStr, nextEndStr);
+        const analyticsMock = generateMockTickets(params.projectKey, params.teamMembers, startOfYear, endOfYear);
         setTickets(mock);
         setNextTickets(nextMock);
+        setAnalyticsTickets(analyticsMock);
         processReportData(mock, nextMock, params.start, params.end, params.projectKey);
       } finally {
         setIsLoading(false);
+        setIsAnalyticsLoading(false);
       }
     } else {
       setTimeout(() => {
@@ -382,11 +459,14 @@ export default function Home() {
         const nextEnd = new Date(params.end);
         nextEnd.setDate(nextEnd.getDate() + 7);
         const nextMock = generateMockTickets(params.projectKey, params.teamMembers, nextStart.toISOString().split('T')[0], nextEnd.toISOString().split('T')[0]);
+        const analyticsMock = generateMockTickets(params.projectKey, params.teamMembers, startOfYear, endOfYear);
 
         setTickets(mock);
         setNextTickets(nextMock);
+        setAnalyticsTickets(analyticsMock);
         processReportData(mock, nextMock, params.start, params.end, params.projectKey);
         setIsLoading(false);
+        setIsAnalyticsLoading(false);
       }, 400);
     }
   };
@@ -394,6 +474,7 @@ export default function Home() {
   const handleFetchTickets = async (e) => {
     if (e) e.preventDefault();
     setIsLoading(true);
+    setIsAnalyticsLoading(true);
 
     const jql = getJql();
     const nextJql = getNextWeekJql();
@@ -405,6 +486,18 @@ export default function Home() {
     const nextEnd = new Date(end);
     nextEnd.setDate(nextEnd.getDate() + 7);
 
+    // 실적 분석 JQL 빌드 (실적 분석 전용 프로젝트/팀원 사용)
+    let analyticsJql = `project = "${analyticsProjectKey.trim() || 'PROJ'}"`;
+    const aMembers = analyticsTeamMembers.split(',').map(m => m.trim()).filter(m => m.length > 0);
+    if (aMembers.length > 0) {
+      const membersQuery = aMembers.map(m => `"${m}"`).join(', ');
+      analyticsJql += ` AND assignee in (${membersQuery})`;
+    }
+    analyticsJql += ` AND status in ("In Progress", "Done", "Resolved", "To Do")`;
+    if (analyticsDateStart) analyticsJql += ` AND created >= "${analyticsDateStart}"`;
+    if (analyticsDateEnd) analyticsJql += ` AND created <= "${analyticsDateEnd} 23:59"`;
+    analyticsJql += ` ORDER BY created DESC`;
+
     if (apiMode) {
       try {
         setConnectionStatus({ dot: 'success', text: '이번 주 데이터 로드 중...' });
@@ -413,12 +506,16 @@ export default function Home() {
         setConnectionStatus({ dot: 'success', text: '다음 주 계획 데이터 로드 중...' });
         const nextData = await fetchJiraTickets(nextJql, url, email, token);
 
+        setConnectionStatus({ dot: 'success', text: '실적 분석 데이터 로드 중...' });
+        const analyticsData = await fetchJiraTickets(analyticsJql, url, email, token);
+
         setTickets(currentData);
         setNextTickets(nextData);
+        setAnalyticsTickets(analyticsData);
         processReportData(currentData, nextData, start, end, projectKey);
         setConnectionStatus({
           dot: 'success',
-          text: `Jira API 연동 완료 (이번 주 ${currentData.length}건 / 다음 주 ${nextData.length}건)`
+          text: `Jira API 연동 완료 (이번 주 ${currentData.length}건 / 다음 주 ${nextData.length}건 / 실적분석 ${analyticsData.length}건)`
         });
       } catch (err) {
         console.error('Jira API 연동 에러:', err);
@@ -426,16 +523,60 @@ export default function Home() {
         setConnectionStatus({ dot: 'danger', text: `연동 실패 (${err.message})` });
       } finally {
         setIsLoading(false);
+        setIsAnalyticsLoading(false);
       }
     } else {
       // 시뮬레이터 동작
       setTimeout(() => {
         const mock = generateMockTickets(projectKey, teamMembers, start, end);
         const nextMock = generateMockTickets(projectKey, teamMembers, nextStart.toISOString().split('T')[0], nextEnd.toISOString().split('T')[0]);
+        const analyticsMock = generateMockTickets(analyticsProjectKey, analyticsTeamMembers, analyticsDateStart, analyticsDateEnd);
         setTickets(mock);
         setNextTickets(nextMock);
+        setAnalyticsTickets(analyticsMock);
         processReportData(mock, nextMock, start, end, projectKey);
         setIsLoading(false);
+        setIsAnalyticsLoading(false);
+      }, 500);
+    }
+  };
+
+  // 실적 분석 기간 단독 조회 핸들러
+  const handleFetchAnalyticsTickets = async (start, end) => {
+    setIsAnalyticsLoading(true);
+
+    let jql = `project = "${analyticsProjectKey.trim() || 'PROJ'}"`;
+    const members = analyticsTeamMembers.split(',').map(m => m.trim()).filter(m => m.length > 0);
+    if (members.length > 0) {
+      const membersQuery = members.map(m => `"${m}"`).join(', ');
+      jql += ` AND assignee in (${membersQuery})`;
+    }
+    jql += ` AND status in ("In Progress", "Done", "Resolved", "To Do")`;
+    if (start) jql += ` AND created >= "${start}"`;
+    if (end) jql += ` AND created <= "${end} 23:59"`;
+    jql += ` ORDER BY created DESC`;
+
+    if (apiMode) {
+      try {
+        setConnectionStatus({ dot: 'success', text: '실적 분석 데이터 로드 중...' });
+        const analyticsData = await fetchJiraTickets(jql, url, email, token);
+        setAnalyticsTickets(analyticsData);
+        setConnectionStatus({
+          dot: 'success',
+          text: `실적 분석 데이터 수집 완료 (${analyticsData.length}건)`
+        });
+      } catch (err) {
+        console.error('실적 분석 지라 API 에러:', err);
+        alert(`[실적 분석 지라 API 에러]\n\n오류 내용: ${err.message}`);
+        setConnectionStatus({ dot: 'danger', text: `실적 분석 연동 실패 (${err.message})` });
+      } finally {
+        setIsAnalyticsLoading(false);
+      }
+    } else {
+      setTimeout(() => {
+        const mock = generateMockTickets(analyticsProjectKey, analyticsTeamMembers, start, end);
+        setAnalyticsTickets(mock);
+        setIsAnalyticsLoading(false);
       }, 500);
     }
   };
@@ -784,7 +925,8 @@ export default function Home() {
   };
 
   const handleCopyJql = () => {
-    navigator.clipboard.writeText(getJql())
+    const query = activeTab === 'tab-analytics' ? getAnalyticsJql() : getJql();
+    navigator.clipboard.writeText(query)
       .then(() => alert('JQL 쿼리가 클립보드에 복사되었습니다.'))
       .catch(() => alert('복사 실패'));
   };
@@ -1143,7 +1285,7 @@ export default function Home() {
               <button type="button" className="btn-text-copy" onClick={handleCopyJql}>JQL 복사</button>
             </div>
             <div className="jql-body">
-              <code>{getJql()}</code>
+              <code>{activeTab === 'tab-analytics' ? getAnalyticsJql() : getJql()}</code>
               <p className="jql-tip">Jira Cloud Advanced Search에 위 쿼리를 그대로 복사해 넣으셔도 조회 가능합니다.</p>
             </div>
           </section>
@@ -1229,10 +1371,17 @@ export default function Home() {
             {/* 실적 분석 탭 */}
             <div className={`tab-content ${activeTab === 'tab-analytics' ? 'active' : ''}`}>
               <PerformanceAnalytics 
-                tickets={tickets} 
-                projectKey={projectKey}
-                dateStart={dateStart}
-                dateEnd={dateEnd}
+                tickets={analyticsTickets} 
+                projectKey={analyticsProjectKey}
+                setProjectKey={setAnalyticsProjectKey}
+                teamMembers={analyticsTeamMembers}
+                setTeamMembers={setAnalyticsTeamMembers}
+                dateStart={analyticsDateStart}
+                dateEnd={analyticsDateEnd}
+                setDateStart={setAnalyticsDateStart}
+                setDateEnd={setAnalyticsDateEnd}
+                onFetch={handleFetchAnalyticsTickets}
+                isLoading={isAnalyticsLoading}
               />
             </div>
 
