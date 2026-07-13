@@ -13,6 +13,9 @@ export default function Home() {
   const [token, setToken] = useState('');
   const [confluenceSpace, setConfluenceSpace] = useState('');
   const [confluenceParentId, setConfluenceParentId] = useState('');
+  const [calendarId, setCalendarId] = useState('');
+  const [calendarApiKey, setCalendarApiKey] = useState('');
+  const [vacationList, setVacationList] = useState([]);
   const [apiMode, setApiMode] = useState(false);
 
   // 팀원 관리 상태
@@ -24,6 +27,7 @@ export default function Home() {
   const [teamMembers, setTeamMembers] = useState('');
   const [dateStart, setDateStart] = useState('');
   const [dateEnd, setDateEnd] = useState('');
+  const [isFilterOpen, setIsFilterOpen] = useState(true);
 
   // 실적 분석 별도 필터 및 데이터 상태
   const [analyticsProjectKey, setAnalyticsProjectKey] = useState('DI26');
@@ -99,6 +103,22 @@ export default function Home() {
       }
     }
 
+    // 1-1-B. 구글 캘린더 설정 복구
+    const savedCalendar = localStorage.getItem('workflow_calendar_settings');
+    let activeCalendarId = '';
+    let activeCalendarApiKey = '';
+    if (savedCalendar) {
+      try {
+        const parsed = JSON.parse(savedCalendar);
+        setCalendarId(parsed.calendarId || '');
+        setCalendarApiKey(parsed.calendarApiKey || '');
+        activeCalendarId = parsed.calendarId || '';
+        activeCalendarApiKey = parsed.calendarApiKey || '';
+      } catch (e) {
+        console.error('캘린더 설정을 복구하는 중 오류 발생:', e);
+      }
+    }
+
     // 1-2. 등록된 팀원 목록 복구
     const savedMembers = localStorage.getItem('workflow_registered_members');
     if (savedMembers) {
@@ -144,7 +164,9 @@ export default function Home() {
       end: fridayStr,
       url: activeUrl,
       email: activeEmail,
-      token: activeToken
+      token: activeToken,
+      calendarId: activeCalendarId,
+      calendarApiKey: activeCalendarApiKey
     });
   }, []);
 
@@ -236,7 +258,7 @@ export default function Home() {
 
     while (pageCount < maxPages) {
       // GET /rest/api/3/search/jql — 커서(nextPageToken) 기반 페이지네이션
-      let targetUrl = `${cleanUrl.replace(/\/$/, '')}/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=key,summary,status,assignee,updated,created&maxResults=${limit}`;
+      let targetUrl = `${cleanUrl.replace(/\/$/, '')}/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=key,summary,status,assignee,updated,created,parent&maxResults=${limit}`;
       if (nextPageToken) {
         targetUrl += `&nextPageToken=${encodeURIComponent(nextPageToken)}`;
       }
@@ -293,7 +315,11 @@ export default function Home() {
       status: issue.fields?.status ? (issue.fields.status.name || 'To Do') : 'To Do',
       assignee: issue.fields?.assignee ? (issue.fields.assignee.displayName || issue.fields.assignee.name || '미지정') : '미지정',
       updated: issue.fields?.updated ? issue.fields.updated.substring(0, 10) : '',
-      created: issue.fields?.created ? issue.fields.created.substring(0, 10) : ''
+      created: issue.fields?.created ? issue.fields.created.substring(0, 10) : '',
+      epic: issue.fields?.parent ? {
+        key: issue.fields.parent.key || '',
+        summary: issue.fields.parent.fields?.summary || ''
+      } : null
     }));
   };
 
@@ -318,6 +344,11 @@ export default function Home() {
     ];
 
     const statusOptions = ['Done', 'In Progress', 'To Do'];
+    const dummyEpics = [
+      { key: `${projKey}-10`, summary: '웹 대시보드 리팩토링 및 현대화' },
+      { key: `${projKey}-20`, summary: 'Jira & Confluence 오픈 API 연동' },
+      { key: `${projKey}-30`, summary: 'UI/UX 고도화 및 사용자 경험 개선' }
+    ];
     const result = [];
 
     const dateArray = [];
@@ -344,6 +375,7 @@ export default function Home() {
       for (let i = 0; i < ticketCount; i++) {
         const dummySummary = dummyTaskPool[(memberSeed + i) % dummyTaskPool.length];
         const dummyStatus = statusOptions[i % statusOptions.length];
+        const dummyEpic = dummyEpics[(memberSeed + i) % dummyEpics.length];
         
         // 날짜가 고르게 분포하도록 인덱스 계산
         const dateIndex = isLongRange 
@@ -356,12 +388,63 @@ export default function Home() {
           summary: dummySummary,
           status: dummyStatus,
           assignee: member,
-          updated: dummyDate
+          updated: dummyDate,
+          epic: dummyEpic
         });
       }
     });
 
     return result.sort((a, b) => new Date(b.updated) - new Date(a.updated));
+  };
+
+  // Google Calendar 연차 로더 및 연차자 판별 헬퍼
+  const fetchCalendarEvents = async (calId, apiKey, start, end) => {
+    if (!calId || !apiKey) return [];
+    
+    // timeMin, timeMax 포맷팅을 사용자의 요구 규격(YYYY-MM-DDThh:mm:ss.000Z)에 맞게 확실하게 변환
+    const timeMin = `${start}T00:00:00.000Z`;
+    const timeMax = `${end}T23:59:59.000Z`;
+    
+    const targetUrl = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events?key=${encodeURIComponent(apiKey)}&timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&singleEvents=true`;
+    try {
+      const response = await fetch(targetUrl);
+      if (!response.ok) {
+        console.warn(`Calendar API status: ${response.status}. 캘린더가 비공개 설정되어 있거나 인증 정보가 잘못되었습니다.`);
+        return [];
+      }
+      const data = await response.json();
+      return data.items || [];
+    } catch (e) {
+      console.error('캘린더 연차 로드 에러:', e);
+      return [];
+    }
+  };
+
+  const getVacationMembers = (events, targetDate, registered) => {
+    if (!events || events.length === 0 || !targetDate) return [];
+    const targetTime = new Date(targetDate).setHours(0,0,0,0);
+    const vacations = [];
+    
+    events.forEach(evt => {
+      const startStr = evt.start?.date || evt.start?.dateTime;
+      const endStr = evt.end?.date || evt.end?.dateTime;
+      if (!startStr) return;
+      
+      const startTime = new Date(startStr).setHours(0,0,0,0);
+      const endTime = new Date(endStr).setHours(0,0,0,0) - (evt.start?.date ? 86400000 : 0);
+      
+      if (targetTime >= startTime && targetTime <= endTime) {
+        const summary = evt.summary || '';
+        const match = summary.match(/^([가-힣a-zA-Z0-9]+?)\s*(연차|휴가|반차|오전반차|오후반차)/);
+        if (match) {
+          const name = match[1];
+          if (registered.includes(name) && !vacations.includes(name)) {
+            vacations.push(name);
+          }
+        }
+      }
+    });
+    return vacations;
   };
 
   // --------------------------------------------------------------------------
@@ -426,26 +509,36 @@ export default function Home() {
         setConnectionStatus({ dot: 'success', text: '초기 로드: 실적 분석 데이터 수집 중...' });
         const analyticsData = await fetchJiraTickets(analyticsJql, params.url, params.email, params.token);
 
+        setConnectionStatus({ dot: 'success', text: '초기 로드: 구글 캘린더 연차 데이터 조회 중...' });
+        let calEvents = [];
+        if (params.calendarId && params.calendarApiKey) {
+          calEvents = await fetchCalendarEvents(params.calendarId, params.calendarApiKey, params.start, params.end);
+        }
+        const currentVacationList = getVacationMembers(calEvents, params.start, registeredMembers);
+        setVacationList(currentVacationList);
+
         setTickets(currentData);
         setNextTickets(nextData);
         setAnalyticsTickets(analyticsData);
-        processReportData(currentData, nextData, params.start, params.end, params.projectKey);
+        processReportData(currentData, nextData, params.start, params.end, params.projectKey, currentVacationList);
         setConnectionStatus({
           dot: 'success',
-          text: `Jira API 연동 완료 (이번 주 ${currentData.length}건 / 다음 주 ${nextData.length}건 / 실적분석 ${analyticsData.length}건)`
+          text: `Jira API 연동 완료 (이번 주 ${currentData.length}건 / 다음 주 ${nextData.length}건 / 실적분석 ${analyticsData.length}건 / 연차 ${currentVacationList.length}명)`
         });
       } catch (err) {
         console.error('초기 로딩 지라 API 에러:', err);
         setConnectionStatus({ dot: 'danger', text: `초기 로드 실패 (${err.message})` });
 
-        // 폴백으로 Mock 데이터 제공
+        // 폴백으로 Mock 데이터 제공 (이영희를 임시 연차자로 지정)
         const mock = generateMockTickets(params.projectKey, params.teamMembers, params.start, params.end);
         const nextMock = generateMockTickets(params.projectKey, params.teamMembers, nextStartStr, nextEndStr);
         const analyticsMock = generateMockTickets(params.projectKey, params.teamMembers, startOfYear, endOfYear);
+        const currentVacationList = ['이영희'];
+        setVacationList(currentVacationList);
         setTickets(mock);
         setNextTickets(nextMock);
         setAnalyticsTickets(analyticsMock);
-        processReportData(mock, nextMock, params.start, params.end, params.projectKey);
+        processReportData(mock, nextMock, params.start, params.end, params.projectKey, currentVacationList);
       } finally {
         setIsLoading(false);
         setIsAnalyticsLoading(false);
@@ -461,10 +554,13 @@ export default function Home() {
         const nextMock = generateMockTickets(params.projectKey, params.teamMembers, nextStart.toISOString().split('T')[0], nextEnd.toISOString().split('T')[0]);
         const analyticsMock = generateMockTickets(params.projectKey, params.teamMembers, startOfYear, endOfYear);
 
+        const currentVacationList = ['이영희']; // 시뮬레이터 기본 연차자 설정
+        setVacationList(currentVacationList);
+
         setTickets(mock);
         setNextTickets(nextMock);
         setAnalyticsTickets(analyticsMock);
-        processReportData(mock, nextMock, params.start, params.end, params.projectKey);
+        processReportData(mock, nextMock, params.start, params.end, params.projectKey, currentVacationList);
         setIsLoading(false);
         setIsAnalyticsLoading(false);
       }, 400);
@@ -476,15 +572,15 @@ export default function Home() {
     setIsLoading(true);
     setIsAnalyticsLoading(true);
 
-    const jql = getJql();
-    const nextJql = getNextWeekJql();
-
     const start = dateStart;
     const end = dateEnd;
     const nextStart = new Date(start);
     nextStart.setDate(nextStart.getDate() + 7);
     const nextEnd = new Date(end);
     nextEnd.setDate(nextEnd.getDate() + 7);
+
+    const jql = getJql();
+    const nextJql = getNextWeekJql();
 
     // 실적 분석 JQL 빌드 (실적 분석 전용 프로젝트/팀원 사용)
     let analyticsJql = `project = "${analyticsProjectKey.trim() || 'PROJ'}"`;
@@ -509,13 +605,21 @@ export default function Home() {
         setConnectionStatus({ dot: 'success', text: '실적 분석 데이터 로드 중...' });
         const analyticsData = await fetchJiraTickets(analyticsJql, url, email, token);
 
+        setConnectionStatus({ dot: 'success', text: '구글 캘린더 연차 데이터 조회 중...' });
+        let calEvents = [];
+        if (calendarId && calendarApiKey) {
+          calEvents = await fetchCalendarEvents(calendarId, calendarApiKey, start, end);
+        }
+        const currentVacationList = getVacationMembers(calEvents, start, registeredMembers);
+        setVacationList(currentVacationList);
+
         setTickets(currentData);
         setNextTickets(nextData);
         setAnalyticsTickets(analyticsData);
-        processReportData(currentData, nextData, start, end, projectKey);
+        processReportData(currentData, nextData, start, end, projectKey, currentVacationList);
         setConnectionStatus({
           dot: 'success',
-          text: `Jira API 연동 완료 (이번 주 ${currentData.length}건 / 다음 주 ${nextData.length}건 / 실적분석 ${analyticsData.length}건)`
+          text: `Jira API 연동 완료 (이번 주 ${currentData.length}건 / 다음 주 ${nextData.length}건 / 실적분석 ${analyticsData.length}건 / 연차 ${currentVacationList.length}명)`
         });
       } catch (err) {
         console.error('Jira API 연동 에러:', err);
@@ -531,10 +635,14 @@ export default function Home() {
         const mock = generateMockTickets(projectKey, teamMembers, start, end);
         const nextMock = generateMockTickets(projectKey, teamMembers, nextStart.toISOString().split('T')[0], nextEnd.toISOString().split('T')[0]);
         const analyticsMock = generateMockTickets(analyticsProjectKey, analyticsTeamMembers, analyticsDateStart, analyticsDateEnd);
+        
+        const currentVacationList = ['이영희']; // 시뮬레이션 고정 연차자
+        setVacationList(currentVacationList);
+
         setTickets(mock);
         setNextTickets(nextMock);
         setAnalyticsTickets(analyticsMock);
-        processReportData(mock, nextMock, start, end, projectKey);
+        processReportData(mock, nextMock, start, end, projectKey, currentVacationList);
         setIsLoading(false);
         setIsAnalyticsLoading(false);
       }, 500);
@@ -584,7 +692,7 @@ export default function Home() {
   // --------------------------------------------------------------------------
   // 6. 보고서 마크다운 생성기
   // --------------------------------------------------------------------------
-  const processReportData = (currList, nextList, start, end, proj) => {
+  const processReportData = (currList, nextList, start, end, proj, customVacations = null) => {
     const getTicketLink = (key) => {
       const baseDomain = url && url.trim() ? url.trim().replace(/\/$/, '') : 'https://ikoobdoc.atlassian.net';
       return `${baseDomain}/browse/${key}`;
@@ -597,6 +705,8 @@ export default function Home() {
         .replace(/\]/g, ')');
     };
 
+    const activeVacations = customVacations !== null ? customVacations : vacationList;
+
     // 6-1. 일일 업무 보고서 빌드
     let dailyMd = `# 📅 일일 업무 STAND-UP 보고서\n\n`;
     dailyMd += `> **보고 기간**: ${start} ~ ${end}\n`;
@@ -607,6 +717,12 @@ export default function Home() {
       dailyMd += `조회 기간 내 진행 중이거나 완료된 티켓이 없습니다.\n`;
     } else {
       members.forEach(member => {
+        if (activeVacations.includes(member)) {
+          dailyMd += `## 👤 담당자: ${member} (🏝️ 당일 연차/휴가)\n\n`;
+          dailyMd += `- 🏝️ 금일 연차(휴가) 일정으로 인해 Stand-up 보고 사항이 없습니다.\n\n---\n\n`;
+          return;
+        }
+
         dailyMd += `## 👤 담당자: ${member}\n\n`;
         const memberTickets = currList.filter(t => t.assignee === member);
         const completed = memberTickets.filter(t => getStatusCategory(t.status) === 'Done');
@@ -617,7 +733,8 @@ export default function Home() {
           dailyMd += `- 완료된 업무가 없습니다.\n`;
         } else {
           completed.forEach(t => {
-            dailyMd += `- [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key)}) (업데이트: ${t.updated})\n`;
+            const epicInfo = t.epic ? ` *(에픽: ${t.epic.key}: ${escapeBrackets(t.epic.summary)})*` : '';
+            dailyMd += `- [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key)}) (업데이트: ${t.updated})${epicInfo}\n`;
           });
         }
         dailyMd += `\n`;
@@ -627,7 +744,8 @@ export default function Home() {
           dailyMd += `- 진행 중인 업무가 없습니다.\n`;
         } else {
           progressing.forEach(t => {
-            dailyMd += `- [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key)})\n`;
+            const epicInfo = t.epic ? ` *(에픽: ${t.epic.key}: ${escapeBrackets(t.epic.summary)})*` : '';
+            dailyMd += `- [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key)})${epicInfo}\n`;
           });
         }
         dailyMd += `\n---\n\n`;
@@ -660,7 +778,7 @@ export default function Home() {
       weeklyMd += `* 조회 기간 내 상세 티켓 내역이 없습니다.\n`;
     } else {
       members.forEach(member => {
-        weeklyMd += `### 👤 담당자: ${member}\n`;
+        weeklyMd += `### 👤 담당자: ${member}${activeVacations.includes(member) ? ' (🏝️ 연차)' : ''}\n`;
         const memberTickets = currList.filter(t => t.assignee === member);
         if (memberTickets.length === 0) {
           weeklyMd += `* 진행한 티켓이 없습니다.\n`;
@@ -668,7 +786,8 @@ export default function Home() {
           memberTickets.forEach(t => {
             const cat = getStatusCategory(t.status);
             const statusIndicator = (cat === 'Done') ? '✅' : (cat === 'In Progress') ? '🔄' : '⏱️';
-            weeklyMd += `* ${statusIndicator} [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key)}) (\`${t.status}\`, 업데이트: ${t.updated})\n`;
+            const epicInfo = t.epic ? ` *(에픽: ${t.epic.key}: ${escapeBrackets(t.epic.summary)})*` : '';
+            weeklyMd += `* ${statusIndicator} [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key)}) (\`${t.status}\`, 업데이트: ${t.updated})${epicInfo}\n`;
           });
         }
         weeklyMd += `\n`;
@@ -687,7 +806,8 @@ export default function Home() {
         memberNext.forEach(t => {
           const cat = getStatusCategory(t.status);
           const stateSymbol = cat === 'Done' ? '🟢 [완료예정]' : cat === 'In Progress' ? '🔄 [진행예정]' : '⏱️ [할일]';
-          weeklyMd += `* ${stateSymbol} [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key)}) (\`${t.status}\`)\n`;
+          const epicInfo = t.epic ? ` *(에픽: ${t.epic.key}: ${escapeBrackets(t.epic.summary)})*` : '';
+          weeklyMd += `* ${stateSymbol} [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key)}) (\`${t.status}\`)${epicInfo}\n`;
         });
         weeklyMd += `\n`;
       });
@@ -702,6 +822,10 @@ export default function Home() {
   const handleSaveSettings = () => {
     const settings = { url, email, token, confluenceSpace, confluenceParentId, apiMode };
     localStorage.setItem('workflow_jira_settings', JSON.stringify(settings));
+
+    const calSettings = { calendarId, calendarApiKey };
+    localStorage.setItem('workflow_calendar_settings', JSON.stringify(calSettings));
+
     alert('설정이 성공적으로 저장되었습니다.');
     if (apiMode) {
       setConnectionStatus({ dot: 'success', text: 'Jira API 대기 중' });
@@ -816,7 +940,9 @@ export default function Home() {
       console.warn('Confluence Host 파싱 에러:', e);
     }
 
-    const htmlContent = parseMarkdownToHtml(reportText);
+    // 컨플루언스 등록 시 에픽 정보(*(에픽: ...)*) 제거 — 에픽 제목에 (APP), (관리자) 등 괄호 포함 대응
+    const cleanedReportText = reportText.replace(/ \*\(에픽:.*?\)\*/g, '');
+    const htmlContent = parseMarkdownToHtml(cleanedReportText);
     const targetUrl = `${cleanUrl.replace(/\/$/, '')}/wiki/rest/api/content`;
     const proxyEndpoint = `/api/proxy?url=${encodeURIComponent(targetUrl)}`;
 
@@ -1092,6 +1218,30 @@ export default function Home() {
             />
           </div>
 
+          <div className="setting-group-divider" style={{ borderTop: '1px rgba(255,255,255,0.06) dashed', margin: '1rem 0' }}></div>
+          
+          <h2 style={{ fontSize: '1rem', marginTop: '1rem', color: 'rgba(255,255,255,0.85)' }}>구글 캘린더 설정</h2>
+          <div className="setting-group">
+            <label htmlFor="calendar-id">Google Calendar ID</label>
+            <input
+              type="text"
+              id="calendar-id"
+              placeholder="company.com_xxx@group.calendar.google.com"
+              value={calendarId}
+              onChange={(e) => setCalendarId(e.target.value)}
+            />
+          </div>
+          <div className="setting-group">
+            <label htmlFor="calendar-api-key">Google Calendar API Key</label>
+            <input
+              type="password"
+              id="calendar-api-key"
+              placeholder="AIzaSy..."
+              value={calendarApiKey}
+              onChange={(e) => setCalendarApiKey(e.target.value)}
+            />
+          </div>
+
           <div className="mode-switch-container">
             <span className="mode-label">API 모드 활성화</span>
             <label className="switch" id="mode-toggle-label">
@@ -1159,75 +1309,117 @@ export default function Home() {
         </header>
 
         {/* 필터 설정 섹션 */}
+        {/* 필터 설정 섹션 */}
         <section className="filter-section card">
-          <div className="section-header">
-            <h3>티켓 필터 조건 설정</h3>
+          <div 
+            className="section-header" 
+            onClick={() => setIsFilterOpen(!isFilterOpen)}
+            style={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              cursor: 'pointer',
+              userSelect: 'none',
+              marginBottom: '1rem'
+            }}
+          >
+            <h3 style={{ margin: 0 }}>티켓 필터 조건 설정</h3>
+            <button 
+              type="button" 
+              className="btn-toggle-filter"
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'rgba(255, 255, 255, 0.6)',
+                cursor: 'pointer',
+                padding: '4px',
+                display: 'flex',
+                alignItems: 'center',
+                transition: 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+                transform: isFilterOpen ? 'rotate(0deg)' : 'rotate(180deg)'
+              }}
+            >
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="18 15 12 9 6 15"></polyline>
+              </svg>
+            </button>
           </div>
-          <form onSubmit={handleFetchTickets} className="filter-grid">
-            <div className="form-group">
-              <label htmlFor="project-key">프로젝트 키</label>
-              <input
-                type="text"
-                id="project-key"
-                placeholder="예: PROJ, DEVEL"
-                value={projectKey}
-                onChange={(e) => {
-                  setProjectKey(e.target.value);
-                  localStorage.setItem('workflow_project_key', e.target.value.trim());
-                }}
-              />
-            </div>
-            <div className="form-group team-input-group">
-              <label htmlFor="team-members">대상 팀원 (이름/ID)</label>
-              <input
-                type="text"
-                id="team-members"
-                placeholder="쉼표(,)로 구분 (예: 김철수, 이영희)"
-                value={teamMembers}
-                onChange={(e) => {
-                  setTeamMembers(e.target.value);
-                  localStorage.setItem('workflow_filter_members', e.target.value);
-                }}
-              />
-              <div className="member-chips-wrapper">
-                {registeredMembers.map((member, idx) => (
-                  <div
-                    key={idx}
-                    className={`member-chip ${activeChipsList.includes(member) ? 'active' : ''}`}
-                    onClick={() => handleToggleMemberChip(member)}
-                  >
-                    {member}
-                  </div>
-                ))}
+          
+          <div
+            className="filter-slide-container"
+            style={{
+              maxHeight: isFilterOpen ? '500px' : '0px',
+              opacity: isFilterOpen ? 1 : 0,
+              overflow: 'hidden',
+              transition: 'max-height 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease-out'
+            }}
+          >
+            <form onSubmit={handleFetchTickets} className="filter-grid" style={{ paddingTop: '0.5rem' }}>
+              <div className="form-group">
+                <label htmlFor="project-key">프로젝트 키</label>
+                <input
+                  type="text"
+                  id="project-key"
+                  placeholder="예: PROJ, DEVEL"
+                  value={projectKey}
+                  onChange={(e) => {
+                    setProjectKey(e.target.value);
+                    localStorage.setItem('workflow_project_key', e.target.value.trim());
+                  }}
+                />
               </div>
-            </div>
-            <div className="form-group">
-              <label htmlFor="date-start">시작일</label>
-              <input
-                type="date"
-                id="date-start"
-                value={dateStart}
-                onChange={(e) => setDateStart(e.target.value)}
-              />
-            </div>
-            <div className="form-group">
-              <label htmlFor="date-end">종료일</label>
-              <input
-                type="date"
-                id="date-end"
-                value={dateEnd}
-                onChange={(e) => setDateEnd(e.target.value)}
-              />
-            </div>
-            <div className="form-actions">
-              <button type="submit" disabled={isLoading} className="btn btn-primary">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" className="btn-icon">
-                  <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-                {isLoading ? '불러오는 중...' : '티켓 가져오기'}
-              </button>
-            </div>
-          </form>
+              <div className="form-group team-input-group">
+                <label htmlFor="team-members">대상 팀원 (이름/ID)</label>
+                <input
+                  type="text"
+                  id="team-members"
+                  placeholder="쉼표(,)로 구분 (예: 김철수, 이영희)"
+                  value={teamMembers}
+                  onChange={(e) => {
+                    setTeamMembers(e.target.value);
+                    localStorage.setItem('workflow_filter_members', e.target.value);
+                  }}
+                />
+                <div className="member-chips-wrapper">
+                  {registeredMembers.map((member, idx) => (
+                    <div
+                      key={idx}
+                      className={`member-chip ${activeChipsList.includes(member) ? 'active' : ''}`}
+                      onClick={() => handleToggleMemberChip(member)}
+                    >
+                      {member}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="form-group">
+                <label htmlFor="date-start">시작일</label>
+                <input
+                  type="date"
+                  id="date-start"
+                  value={dateStart}
+                  onChange={(e) => setDateStart(e.target.value)}
+                />
+              </div>
+              <div className="form-group">
+                <label htmlFor="date-end">종료일</label>
+                <input
+                  type="date"
+                  id="date-end"
+                  value={dateEnd}
+                  onChange={(e) => setDateEnd(e.target.value)}
+                />
+              </div>
+              <div className="form-actions">
+                <button type="submit" disabled={isLoading} className="btn btn-primary">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" className="btn-icon">
+                    <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  {isLoading ? '불러오는 중...' : '티켓 가져오기'}
+                </button>
+              </div>
+            </form>
+          </div>
         </section>
 
         {/* 중간 대시보드 통계 및 JQL 프리뷰 */}
@@ -1243,9 +1435,34 @@ export default function Home() {
                   className="css-pie"
                   style={{
                     '--p-done': `${donePercent}%`,
-                    '--p-progress': `${progressPercent}%`
+                    '--p-progress': `${progressPercent}%`,
+                    position: 'relative',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
                   }}
-                ></div>
+                >
+                  <div 
+                    className="pie-center-hole"
+                    style={{
+                      width: '64%',
+                      height: '64%',
+                      borderRadius: '50%',
+                      background: '#0d0d1e',
+                      position: 'absolute',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      boxShadow: 'inset 0 2px 6px rgba(0,0,0,0.6)',
+                      border: '1px solid rgba(255,255,255,0.06)',
+                      userSelect: 'none'
+                    }}
+                  >
+                    <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.5)', fontWeight: '500', transform: 'translateY(1px)' }}>완료율</span>
+                    <span style={{ fontSize: '1.05rem', color: '#10b981', fontWeight: '700', marginTop: '0px' }}>{donePercent}%</span>
+                  </div>
+                </div>
                 <div className="chart-legend">
                   <div className="legend-item">
                     <span className="legend-color done"></span>

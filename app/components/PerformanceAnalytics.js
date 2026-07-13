@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
   LineChart,
   Line,
@@ -44,22 +44,72 @@ export default function PerformanceAnalytics({
   const [viewMode, setViewMode] = useState('trend'); // 'trend' | 'comparison' | 'insights'
   const [chartType, setChartType] = useState('line'); // 'line' | 'bar'
   const [timeRange, setTimeRange] = useState(6); // 몇 개월 볼지
+  const [excludedTicketKeys, setExcludedTicketKeys] = useState(new Set());
+
+  // 티켓 데이터가 새로 조회되면 제외 목록 초기화
+  useEffect(() => {
+    setExcludedTicketKeys(new Set());
+  }, [tickets]);
+
+  // 체크박스에서 제외된 티켓을 필터링한 활성 티켓 목록
+  const activeTickets = useMemo(() => {
+    if (!tickets || tickets.length === 0) return [];
+    return tickets.filter(t => !excludedTicketKeys.has(t.key));
+  }, [tickets, excludedTicketKeys]);
 
   const analysis = useMemo(() => {
-    return analyzeMonthlyPerformance(tickets);
-  }, [tickets]);
+    return analyzeMonthlyPerformance(activeTickets);
+  }, [activeTickets]);
 
   const timeSeriesData = useMemo(() => {
-    return generateTimeSeriesData(tickets, timeRange, dateStart, dateEnd);
-  }, [tickets, timeRange, dateStart, dateEnd]);
+    return generateTimeSeriesData(activeTickets, timeRange, dateStart, dateEnd);
+  }, [activeTickets, timeRange, dateStart, dateEnd]);
 
   const insights = useMemo(() => {
-    return generateInsights(tickets, analysis);
-  }, [tickets, analysis]);
+    return generateInsights(activeTickets, analysis);
+  }, [activeTickets, analysis]);
 
   const predictions = useMemo(() => {
-    return predictNextMonth(tickets);
+    return predictNextMonth(activeTickets);
+  }, [activeTickets]);
+
+  // 원본 티켓 기준으로 MVP 및 고WIP 담당자 식별 (체크박스 목록 렌더링용)
+  const { mvpMember, wipMembers } = useMemo(() => {
+    if (!tickets || tickets.length === 0) return { mvpMember: null, wipMembers: [] };
+    const byAssignee = {};
+    tickets.forEach(t => {
+      if (!byAssignee[t.assignee]) byAssignee[t.assignee] = { completed: 0, inProgress: 0 };
+      const st = (t.status || '').toLowerCase();
+      if (st.includes('done') || st.includes('resolved') || st.includes('완료') || st.includes('closed')) {
+        byAssignee[t.assignee].completed++;
+      } else if (st.includes('progress') || st.includes('진행') || st.includes('doing') || st.includes('개발')) {
+        byAssignee[t.assignee].inProgress++;
+      }
+    });
+    let topMember = null;
+    let topCompleted = 0;
+    const wipList = [];
+    Object.keys(byAssignee).forEach(a => {
+      if (byAssignee[a].completed > topCompleted) {
+        topCompleted = byAssignee[a].completed;
+        topMember = a;
+      }
+      if (byAssignee[a].inProgress > 5) wipList.push(a);
+    });
+    return { mvpMember: topMember, wipMembers: wipList };
   }, [tickets]);
+
+  const handleToggleTicket = (ticketKey) => {
+    setExcludedTicketKeys(prev => {
+      const next = new Set(prev);
+      if (next.has(ticketKey)) {
+        next.delete(ticketKey);
+      } else {
+        next.add(ticketKey);
+      }
+      return next;
+    });
+  };
 
   const handleDownloadMonthlyReport = () => {
     const report = generatePerformanceReport(tickets, analysis, 'monthly');
@@ -319,7 +369,9 @@ export default function PerformanceAnalytics({
                         nameKey="assignee"
                         cx="50%"
                         cy="50%"
+                        innerRadius={50}
                         outerRadius={80}
+                        paddingAngle={3}
                         label={(entry) => `${entry.assignee}: ${entry.completed}건`}
                       >
                         {analysis.summary.map((entry, index) => (
@@ -388,12 +440,87 @@ export default function PerformanceAnalytics({
               {/* 인사이트 카드 */}
               <div className="insights-section card">
                 <h4>🎯 자동 생성 인사이트</h4>
+                {excludedTicketKeys.size > 0 && (
+                  <p style={{ fontSize: '0.78rem', color: '#f59e0b', margin: '0 0 0.5rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                    ⚡ 현재 {excludedTicketKeys.size}건의 티켓이 제외되어 재계산된 결과입니다.
+                  </p>
+                )}
                 <ul className="insights-list">
                   {insights.map((insight, idx) => (
                     <li key={idx} className="insight-item">{insight}</li>
                   ))}
                 </ul>
               </div>
+
+              {/* MVP 담당자 전체 티켓 체크리스트 */}
+              {mvpMember && tickets && tickets.filter(t => t.assignee === mvpMember).length > 0 && (
+                <div className="insights-section card" style={{ marginTop: '1rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                    <h4 style={{ margin: 0 }}>🏆 MVP 후보: {mvpMember} — 티켓 상세</h4>
+                    <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.5)', background: 'rgba(16,185,129,0.1)', padding: '3px 10px', borderRadius: '12px' }}>
+                      {tickets.filter(t => t.assignee === mvpMember && !excludedTicketKeys.has(t.key)).length} / {tickets.filter(t => t.assignee === mvpMember).length}건 반영
+                    </span>
+                  </div>
+                  <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.4)', margin: '0 0 0.75rem' }}>
+                    체크 해제 시 해당 티켓이 실적 집계에서 제외되어 인사이트·차트·예측이 즉시 재계산됩니다.
+                  </p>
+                  <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '0.3rem', maxHeight: '320px', overflowY: 'auto', paddingRight: '4px' }}>
+                    {tickets.filter(t => t.assignee === mvpMember).map(t => {
+                      const isChecked = !excludedTicketKeys.has(t.key);
+                      const st = (t.status || '').toLowerCase();
+                      const isDone = st.includes('done') || st.includes('resolved') || st.includes('완료');
+                      const isInProg = st.includes('progress') || st.includes('진행');
+                      return (
+                        <li key={t.key} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.45rem 0.65rem', borderRadius: '6px', background: isChecked ? 'rgba(255,255,255,0.04)' : 'transparent', opacity: isChecked ? 1 : 0.4, transition: 'opacity 0.2s ease, background 0.2s ease', cursor: 'pointer' }} onClick={() => handleToggleTicket(t.key)}>
+                          <input type="checkbox" checked={isChecked} onChange={() => {}} style={{ accentColor: '#10b981', width: '15px', height: '15px', cursor: 'pointer', flexShrink: 0 }} />
+                          <span style={{ fontSize: '0.68rem', padding: '2px 7px', borderRadius: '4px', fontWeight: 600, background: isDone ? 'rgba(16,185,129,0.15)' : isInProg ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.08)', color: isDone ? '#10b981' : isInProg ? '#818cf8' : 'rgba(255,255,255,0.6)', flexShrink: 0, minWidth: '65px', textAlign: 'center' }}>{t.status}</span>
+                          <span style={{ fontSize: '0.82rem', color: isChecked ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.35)', flex: 1 }}>
+                            <strong>{t.key}</strong>: {t.summary}
+                            {t.epic && <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.3)', marginLeft: '0.4rem' }}>({t.epic.key})</span>}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
+
+              {/* 진행중 티켓이 많은 담당자 전체 티켓 체크리스트 */}
+              {wipMembers.filter(m => m !== mvpMember).map(member => {
+                const memberTickets = tickets.filter(t => t.assignee === member);
+                if (memberTickets.length === 0) return null;
+                return (
+                  <div key={member} className="insights-section card" style={{ marginTop: '1rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                      <h4 style={{ margin: 0 }}>⚠️ 고 WIP 담당자: {member} — 티켓 상세</h4>
+                      <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.5)', background: 'rgba(245,158,11,0.1)', padding: '3px 10px', borderRadius: '12px' }}>
+                        {memberTickets.filter(t => !excludedTicketKeys.has(t.key)).length} / {memberTickets.length}건 반영
+                      </span>
+                    </div>
+                    <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.4)', margin: '0 0 0.75rem' }}>
+                      체크 해제 시 해당 티켓이 실적 집계에서 제외되어 인사이트·차트·예측이 즉시 재계산됩니다.
+                    </p>
+                    <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '0.3rem', maxHeight: '320px', overflowY: 'auto', paddingRight: '4px' }}>
+                      {memberTickets.map(t => {
+                        const isChecked = !excludedTicketKeys.has(t.key);
+                        const st = (t.status || '').toLowerCase();
+                        const isDone = st.includes('done') || st.includes('resolved') || st.includes('완료');
+                        const isInProg = st.includes('progress') || st.includes('진행');
+                        return (
+                          <li key={t.key} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.45rem 0.65rem', borderRadius: '6px', background: isChecked ? 'rgba(255,255,255,0.04)' : 'transparent', opacity: isChecked ? 1 : 0.4, transition: 'opacity 0.2s ease, background 0.2s ease', cursor: 'pointer' }} onClick={() => handleToggleTicket(t.key)}>
+                            <input type="checkbox" checked={isChecked} onChange={() => {}} style={{ accentColor: '#f59e0b', width: '15px', height: '15px', cursor: 'pointer', flexShrink: 0 }} />
+                            <span style={{ fontSize: '0.68rem', padding: '2px 7px', borderRadius: '4px', fontWeight: 600, background: isDone ? 'rgba(16,185,129,0.15)' : isInProg ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.08)', color: isDone ? '#10b981' : isInProg ? '#818cf8' : 'rgba(255,255,255,0.6)', flexShrink: 0, minWidth: '65px', textAlign: 'center' }}>{t.status}</span>
+                            <span style={{ fontSize: '0.82rem', color: isChecked ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.35)', flex: 1 }}>
+                              <strong>{t.key}</strong>: {t.summary}
+                              {t.epic && <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.3)', marginLeft: '0.4rem' }}>({t.epic.key})</span>}
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                );
+              })}
 
               {/* 예측 데이터 */}
               <div className="predictions-section card">
