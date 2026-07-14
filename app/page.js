@@ -216,8 +216,8 @@ class DailyReportStrategy extends ReportStrategy {
     const todayStr = `${todayObj.getFullYear()}-${String(todayObj.getMonth() + 1).padStart(2, '0')}-${String(todayObj.getDate()).padStart(2, '0')}`;
     const activeDailyVacations = Array.isArray(rawEvents)
       ? (rawEvents.length > 0 && typeof rawEvents[0] === 'string'
-          ? rawEvents
-          : getVacationMembers(rawEvents, todayStr, todayStr, targetRegs))
+        ? rawEvents
+        : getVacationMembers(rawEvents, todayStr, todayStr, targetRegs))
       : [];
 
     let dailyMd = `# 📅 일일 업무 STAND-UP 보고서\n\n`;
@@ -275,8 +275,8 @@ class WeeklyReportStrategy extends ReportStrategy {
     const { currList, nextList, start, end, proj, rawEvents, targetRegs, jiraUrl } = reportParams;
     const activeWeeklyVacations = Array.isArray(rawEvents)
       ? (rawEvents.length > 0 && typeof rawEvents[0] === 'string'
-          ? rawEvents
-          : getVacationMembers(rawEvents, start, end, targetRegs))
+        ? rawEvents
+        : getVacationMembers(rawEvents, start, end, targetRegs))
       : [];
 
     const total = currList.length;
@@ -1221,9 +1221,20 @@ export default function Home() {
       };
     });
 
+    const getLatestUpdate = (epicTickets) => {
+      if (!epicTickets || epicTickets.length === 0) return 0;
+      const dates = epicTickets.map(t => new Date(t.updated || 0).getTime());
+      return Math.max(...dates);
+    };
+
     return epicsList.sort((a, b) => {
       if (a.key === 'NO_EPIC') return 1;
       if (b.key === 'NO_EPIC') return -1;
+      const aLatest = getLatestUpdate(a.tickets);
+      const bLatest = getLatestUpdate(b.tickets);
+      if (bLatest !== aLatest) {
+        return bLatest - aLatest;
+      }
       return a.key.localeCompare(b.key);
     });
   };
@@ -2296,7 +2307,7 @@ export default function Home() {
                             <span className="epic-badge">{epic.key}</span>
                             <h4 className="epic-summary">{epic.summary}</h4>
                           </div>
-                          
+
                           {/* 진행율 통계 요약 */}
                           <div className="epic-stats-row">
                             {epic.beProgress !== null && (
@@ -2337,12 +2348,14 @@ export default function Home() {
                               <ul className="schedule-ticket-list">
                                 {epic.categorizedTickets.BE.map(t => (
                                   <li key={t.key} className="schedule-ticket-item">
-                                    <span className="ticket-key-link" onClick={() => window.open(getTicketLink(t.key, url), '_blank')}>{t.key}</span>
-                                    <span className="ticket-summary-text">{t.summary}</span>
-                                    <div className="ticket-meta">
-                                      <span className="assignee">👤 {t.assignee || '미지정'}</span>
-                                      <span className={`status-tag ${getStatusCategory(t.status).toLowerCase().replace(' ', '-')}`}>{t.status}</span>
+                                    <div className="ticket-key-assignee">
+                                      <span className="ticket-key-link" onClick={() => window.open(getTicketLink(t.key, url), '_blank')}>{t.key}</span>
+                                      <div className="ticket-meta">
+                                        <span className="assignee">👤 {t.assignee || '미지정'}</span>
+                                        <span className={`status-tag ${getStatusCategory(t.status).toLowerCase().replace(' ', '-')}`}>{t.status}</span>
+                                      </div>
                                     </div>
+                                    <span className="ticket-summary-text">{t.summary}</span>
                                   </li>
                                 ))}
                               </ul>

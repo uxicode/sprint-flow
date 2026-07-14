@@ -1384,8 +1384,7 @@ input:checked+.slider:before {
   animation: spin 1s linear infinite;
 }
 
-@keyframes spin {
-}
+@keyframes spin {}
 
 /* ==========================================================================
    Epic Schedule Management Tab Styles
@@ -1482,9 +1481,11 @@ input:checked+.slider:before {
 .stat-badge.be {
   border-left: 3px solid var(--color-success);
 }
+
 .stat-badge.fe {
   border-left: 3px solid var(--color-accent);
 }
+
 .stat-badge.mo {
   border-left: 3px solid var(--raw-neon-purple);
 }
@@ -1519,9 +1520,11 @@ input:checked+.slider:before {
 .stat-badge.be .mini-progress-bar .fill {
   background: var(--color-success);
 }
+
 .stat-badge.fe .mini-progress-bar .fill {
   background: var(--color-accent);
 }
+
 .stat-badge.mo .mini-progress-bar .fill {
   background: var(--raw-neon-purple);
 }
@@ -1565,7 +1568,7 @@ input:checked+.slider:before {
   background: rgba(255, 255, 255, 0.01);
   border: 1px solid rgba(255, 255, 255, 0.03);
   border-radius: 6px;
-  padding: 0.6rem 0.75rem;
+  padding: 0.4rem 0.85rem;
   font-size: 0.825rem;
   display: flex;
   flex-direction: column;
@@ -1582,12 +1585,22 @@ input:checked+.slider:before {
   color: var(--color-accent);
   cursor: pointer;
   text-decoration: underline;
-  align-self: flex-start;
+  /* align-self: flex-start; */
+  font-size: 11px;
 }
 
 .ticket-summary-text {
   color: var(--text-primary);
   line-height: 1.4;
+  font-size: 11px;
+}
+
+.ticket-key-assignee {
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .ticket-meta {
@@ -1600,6 +1613,8 @@ input:checked+.slider:before {
 
 .ticket-meta .assignee {
   color: var(--text-muted);
+  font-size: 11px;
+  margin-right: 10px;
 }
 
 .ticket-meta .status-tag {
