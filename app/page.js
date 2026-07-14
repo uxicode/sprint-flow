@@ -187,6 +187,8 @@ class JqlQueryBuilder {
       const statusesQuery = this.statuses.map(s => `"${s}"`).join(', ');
       jql += ` AND status in (${statusesQuery})`;
     }
+    // 하위 작업(Sub-task) 제외
+    jql += ' AND issuetype not in subTaskIssueTypes()';
     if (this.startDate) {
       jql += ` AND ${this.dateField} >= "${this.startDate}"`;
     }
@@ -962,16 +964,6 @@ export default function Home() {
       const proj = params.projectKey.trim() || 'PROJ';
       const members = params.teamMembers.split(',').map(m => m.trim()).filter(m => m.length > 0);
 
-      let jql = `project = "${proj}"`;
-      if (members.length > 0) {
-        const membersQuery = members.map(m => `"${m}"`).join(', ');
-        jql += ` AND assignee in (${membersQuery})`;
-      }
-      jql += ` AND status in ("In Progress", "Done", "Resolved", "To Do")`;
-      if (params.start) jql += ` AND updated >= "${params.start}"`;
-      if (params.end) jql += ` AND updated <= "${params.end} 23:59"`;
-      jql += ` ORDER BY updated DESC`;
-
       const nextStart = new Date(params.start);
       nextStart.setDate(nextStart.getDate() + 7);
       const nextEnd = new Date(params.end);
@@ -979,25 +971,23 @@ export default function Home() {
       const nextStartStr = nextStart.toISOString().split('T')[0];
       const nextEndStr = nextEnd.toISOString().split('T')[0];
 
-      let nextJql = `project = "${proj}"`;
-      if (members.length > 0) {
-        const membersQuery = members.map(m => `"${m}"`).join(', ');
-        nextJql += ` AND assignee in (${membersQuery})`;
-      }
-      nextJql += ` AND status in ("In Progress", "Done", "Resolved", "To Do")`;
-      nextJql += ` AND updated >= "${nextStartStr}"`;
-      nextJql += ` AND updated <= "${nextEndStr} 23:59"`;
-      nextJql += ` ORDER BY updated DESC`;
+      const jql = new JqlQueryBuilder()
+        .setProject(proj)
+        .setAssignees(params.teamMembers)
+        .setDateRange(params.start, params.end, 'updated')
+        .build();
 
-      let analyticsJql = `project = "${proj}"`;
-      if (members.length > 0) {
-        const membersQuery = members.map(m => `"${m}"`).join(', ');
-        analyticsJql += ` AND assignee in (${membersQuery})`;
-      }
-      analyticsJql += ` AND status in ("In Progress", "Done", "Resolved", "To Do")`;
-      analyticsJql += ` AND updated >= "${startOfYear}"`;
-      analyticsJql += ` AND updated <= "${endOfYear} 23:59"`;
-      analyticsJql += ` ORDER BY updated DESC`;
+      const nextJql = new JqlQueryBuilder()
+        .setProject(proj)
+        .setAssignees(params.teamMembers)
+        .setDateRange(nextStartStr, nextEndStr, 'updated')
+        .build();
+
+      const analyticsJql = new JqlQueryBuilder()
+        .setProject(proj)
+        .setAssignees(params.teamMembers)
+        .setDateRange(startOfYear, endOfYear, 'updated')
+        .build();
 
       try {
         setConnectionStatus({ dot: 'success', text: '초기 로드: 이번 주 데이터 수집 중...' });
@@ -1104,16 +1094,11 @@ export default function Home() {
     const nextJql = getNextWeekJql();
 
     // 실적 분석 JQL 빌드 (실적 분석 전용 프로젝트/팀원 사용)
-    let analyticsJql = `project = "${analyticsProjectKey.trim() || 'PROJ'}"`;
-    const aMembers = analyticsTeamMembers.split(',').map(m => m.trim()).filter(m => m.length > 0);
-    if (aMembers.length > 0) {
-      const membersQuery = aMembers.map(m => `"${m}"`).join(', ');
-      analyticsJql += ` AND assignee in (${membersQuery})`;
-    }
-    analyticsJql += ` AND status in ("In Progress", "Done", "Resolved", "To Do")`;
-    if (analyticsDateStart) analyticsJql += ` AND created >= "${analyticsDateStart}"`;
-    if (analyticsDateEnd) analyticsJql += ` AND created <= "${analyticsDateEnd} 23:59"`;
-    analyticsJql += ` ORDER BY created DESC`;
+    const analyticsJql = new JqlQueryBuilder()
+      .setProject(analyticsProjectKey)
+      .setAssignees(analyticsTeamMembers)
+      .setDateRange(analyticsDateStart, analyticsDateEnd, 'created')
+      .build();
 
     if (apiMode) {
       try {
@@ -1247,16 +1232,11 @@ export default function Home() {
   const handleFetchAnalyticsTickets = async (start, end) => {
     setIsAnalyticsLoading(true);
 
-    let jql = `project = "${analyticsProjectKey.trim() || 'PROJ'}"`;
-    const members = analyticsTeamMembers.split(',').map(m => m.trim()).filter(m => m.length > 0);
-    if (members.length > 0) {
-      const membersQuery = members.map(m => `"${m}"`).join(', ');
-      jql += ` AND assignee in (${membersQuery})`;
-    }
-    jql += ` AND status in ("In Progress", "Done", "Resolved", "To Do")`;
-    if (start) jql += ` AND created >= "${start}"`;
-    if (end) jql += ` AND created <= "${end} 23:59"`;
-    jql += ` ORDER BY created DESC`;
+    const jql = new JqlQueryBuilder()
+      .setProject(analyticsProjectKey)
+      .setAssignees(analyticsTeamMembers)
+      .setDateRange(start, end, 'created')
+      .build();
 
     if (apiMode) {
       try {
