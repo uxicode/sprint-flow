@@ -412,6 +412,7 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState('tab-daily');
   const [tickets, setTickets] = useState([]);
   const [nextTickets, setNextTickets] = useState([]);
+  const [scheduleTickets, setScheduleTickets] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState({
     dot: 'accent',
@@ -699,6 +700,15 @@ export default function Home() {
       .setProject(projectKey)
       .setAssignees(teamMembers)
       .setDateRange(nextStartStr, nextEndStr, 'updated')
+      .build();
+  };
+
+  const getScheduleJql = (proj = projectKey, members = teamMembers) => {
+    const thisYear = new Date().getFullYear();
+    return new JqlQueryBuilder()
+      .setProject(proj)
+      .setAssignees(members)
+      .setDateRange(`${thisYear}-01-01`, `${thisYear}-12-31`, 'created')
       .build();
   };
 
@@ -999,6 +1009,10 @@ export default function Home() {
         setConnectionStatus({ dot: 'success', text: '초기 로드: 실적 분석 데이터 수집 중...' });
         const analyticsData = await fetchJiraTickets(analyticsJql, params.url, params.email, params.token);
 
+        setConnectionStatus({ dot: 'success', text: '초기 로드: 전체 일정 데이터 수집 중...' });
+        const scheduleJql = getScheduleJql(params.projectKey, params.teamMembers);
+        const scheduleData = await fetchJiraTickets(scheduleJql, params.url, params.email, params.token);
+
         setConnectionStatus({ dot: 'success', text: '초기 로드: 캘린더 연차 데이터 조회 중...' });
         let calEvents = [];
         if (params.calendarId && (params.accessToken || params.refreshToken)) {
@@ -1019,6 +1033,8 @@ export default function Home() {
         setTickets(currentData);
         setNextTickets(nextData);
         setAnalyticsTickets(analyticsData);
+        setScheduleTickets(scheduleData);
+        setScheduleTickets(scheduleData);
         // processReportData에는 raw events 배열(calEvents)을 바로 넘김
         setVacationList(calEvents);
         processReportData(currentData, nextData, params.start, params.end, params.projectKey, calEvents, activeRegs);
@@ -1034,11 +1050,13 @@ export default function Home() {
         const mock = generateMockTickets(params.projectKey, params.teamMembers, params.start, params.end);
         const nextMock = generateMockTickets(params.projectKey, params.teamMembers, nextStartStr, nextEndStr);
         const analyticsMock = generateMockTickets(params.projectKey, params.teamMembers, startOfYear, endOfYear);
+        const scheduleMock = generateMockTickets(params.projectKey, params.teamMembers, startOfYear, endOfYear);
         const currentVacationList = ['이영희'];
         setVacationList(currentVacationList);
         setTickets(mock);
         setNextTickets(nextMock);
         setAnalyticsTickets(analyticsMock);
+        setScheduleTickets(scheduleMock);
         processReportData(mock, nextMock, params.start, params.end, params.projectKey, currentVacationList);
       } finally {
         setIsLoading(false);
@@ -1054,6 +1072,7 @@ export default function Home() {
         nextEnd.setDate(nextEnd.getDate() + 7);
         const nextMock = generateMockTickets(params.projectKey, params.teamMembers, nextStart.toISOString().split('T')[0], nextEnd.toISOString().split('T')[0]);
         const analyticsMock = generateMockTickets(params.projectKey, params.teamMembers, startOfYear, endOfYear);
+        const scheduleMock = generateMockTickets(params.projectKey, params.teamMembers, startOfYear, endOfYear);
 
         const currentVacationList = ['이영희']; // 시뮬레이터 기본 연차자 설정
         setVacationList(currentVacationList);
@@ -1061,6 +1080,7 @@ export default function Home() {
         setTickets(mock);
         setNextTickets(nextMock);
         setAnalyticsTickets(analyticsMock);
+        setScheduleTickets(scheduleMock);
         processReportData(mock, nextMock, params.start, params.end, params.projectKey, currentVacationList);
         setIsLoading(false);
         setIsAnalyticsLoading(false);
@@ -1106,6 +1126,10 @@ export default function Home() {
         setConnectionStatus({ dot: 'success', text: '실적 분석 데이터 로드 중...' });
         const analyticsData = await fetchJiraTickets(analyticsJql, url, email, token);
 
+        setConnectionStatus({ dot: 'success', text: '전체 일정 데이터 로드 중...' });
+        const scheduleJql = getScheduleJql();
+        const scheduleData = await fetchJiraTickets(scheduleJql, url, email, token);
+
         setConnectionStatus({ dot: 'success', text: '캘린더 연차 데이터 조회 중...' });
         let calEvents = [];
         if (calendarId && (calendarAccessToken || calendarRefreshToken)) {
@@ -1141,6 +1165,8 @@ export default function Home() {
         const mock = generateMockTickets(projectKey, teamMembers, start, end);
         const nextMock = generateMockTickets(projectKey, teamMembers, nextStart.toISOString().split('T')[0], nextEnd.toISOString().split('T')[0]);
         const analyticsMock = generateMockTickets(analyticsProjectKey, analyticsTeamMembers, analyticsDateStart, analyticsDateEnd);
+        const thisYear = new Date().getFullYear();
+        const scheduleMock = generateMockTickets(projectKey, teamMembers, `${thisYear}-01-01`, `${thisYear}-12-31`);
 
         const currentVacationList = ['이영희']; // 시뮬레이션 고정 연차자
         setVacationList(currentVacationList);
@@ -1148,6 +1174,7 @@ export default function Home() {
         setTickets(mock);
         setNextTickets(nextMock);
         setAnalyticsTickets(analyticsMock);
+        setScheduleTickets(scheduleMock);
         processReportData(mock, nextMock, start, end, projectKey, currentVacationList);
         setIsLoading(false);
         setIsAnalyticsLoading(false);
@@ -1157,15 +1184,7 @@ export default function Home() {
 
   // 에픽별 일정 및 진행률 계산 유틸
   const getEpicScheduleData = () => {
-    const allTickets = [];
-    const seenKeys = new Set();
-    [...tickets, ...nextTickets].forEach(t => {
-      if (!seenKeys.has(t.key)) {
-        seenKeys.add(t.key);
-        allTickets.push(t);
-      }
-    });
-
+    const allTickets = scheduleTickets;
     const epicsMap = {};
 
     allTickets.forEach(t => {
