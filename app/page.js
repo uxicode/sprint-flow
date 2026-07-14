@@ -32,11 +32,22 @@ const getLocalDateStr = (dateObj) => {
   return '';
 };
 
+// Jira 티켓의 상태 카테고리를 Normalization 처리하는 유틸리티
+const getStatusCategory = (statusName) => {
+  const status = (statusName || '').toLowerCase().trim();
+  if (status.includes('done') || status.includes('resolved') || status.includes('완료') || status.includes('closed') || status.includes('성공')) {
+    return 'Done';
+  }
+  if (status.includes('progress') || status.includes('진행') || status.includes('doing') || status.includes('개발') || status.includes('selected') || status.includes('working')) {
+    return 'In Progress';
+  }
+  return 'To Do';
+};
+
 // 캘린더 이벤트 요약 내용에서 연차 유형과 신청 팀원 이름을 추출
 const parseVacationEvent = (summary) => {
   if (!summary) return { isVacation: false, name: '', matchedWord: '' };
 
-  // 1. 대괄호 접두사 형태 매칭: [연차] 최석호, [오후반반차] 김용권
   const bracketMatch = summary.match(/^\[([^\]]+)\]\s*([가-힣a-zA-Z0-9\s]+)/);
   if (bracketMatch) {
     const type = bracketMatch[1];
@@ -51,7 +62,6 @@ const parseVacationEvent = (summary) => {
     }
   }
 
-  // 2. 접미사 형태 매칭: 홍길동 연차, 김철수 반차
   const suffixMatch = summary.match(/^([가-힣a-zA-Z0-9\s]+?)\s*(연차|휴가|반차|대체휴무|건강검진|오후반반차|오전반반차|오전반차|오후반차|유연근무)/);
   if (suffixMatch) {
     return {
@@ -72,10 +82,8 @@ const isEventOverlapping = (evtStart, evtEnd, startRange, endRange) => {
 
   const targetEnd = endRange || startRange;
   if (evtStart?.date) {
-    // 올데이 이벤트: exclusive end date이므로 > startRange
     return eventStartDate <= targetEnd && eventEndDate > startRange;
   }
-  // 일반 시간대 이벤트
   return eventStartDate <= targetEnd && eventEndDate >= startRange;
 };
 
@@ -93,7 +101,7 @@ const getMemberVacationDates = (events, member, startRange, endRange) => {
         if (evt.start?.date) {
           const d = new Date(evt.end.date);
           d.setDate(d.getDate() - 1);
-          const formattedEndDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          const formattedEndDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-\ ${String(d.getDate()).padStart(2, '0')}`.replace(/\s+/g, '');
           dateStr = eventStartDate === formattedEndDate ? eventStartDate : `${eventStartDate} ~ ${formattedEndDate}`;
         } else {
           const eventEndDate = getLocalDateStr(evt.end);
@@ -105,6 +113,260 @@ const getMemberVacationDates = (events, member, startRange, endRange) => {
   });
   return vacationStrings.join(', ');
 };
+
+// 캘린더 연차 대상 목록을 조회하는 유틸리티
+const getVacationMembers = (events, startDate, endDate, registered) => {
+  console.log('[Calendar] getVacationMembers 시작 - 대상 범위:', startDate, '~', endDate, '| 등록 팀원:', registered);
+  if (!events || events.length === 0 || !startDate) {
+    console.log('[Calendar] 이벤트 목록이 비어있거나 날짜가 유효하지 않습니다.');
+    return [];
+  }
+
+  const vacations = [];
+  events.forEach(evt => {
+    if (isEventOverlapping(evt.start, evt.end, startDate, endDate)) {
+      const { isVacation, name } = parseVacationEvent(evt.summary);
+      if (isVacation && name) {
+        if (registered.includes(name) && !vacations.includes(name)) {
+          vacations.push(name);
+          console.log(`[Calendar] 연차 매칭 성공: ${name} (${evt.summary})`);
+        }
+      }
+    }
+  });
+
+  console.log('[Calendar] 최종 연차자 명단:', vacations);
+  return vacations;
+};
+
+// ============================================================================
+// 디자인 패턴: 1. Builder Pattern - JQL 쿼리 빌더 클래스
+// ============================================================================
+class JqlQueryBuilder {
+  constructor() {
+    this.project = 'PROJ';
+    this.assignees = [];
+    this.statuses = ['In Progress', 'Done', 'Resolved', 'To Do'];
+    this.dateField = 'updated';
+    this.startDate = '';
+    this.endDate = '';
+    this.orderByField = 'updated';
+    this.orderDirection = 'DESC';
+  }
+
+  setProject(project) {
+    this.project = project ? project.trim() : 'PROJ';
+    return this;
+  }
+
+  setAssignees(membersString) {
+    if (membersString) {
+      this.assignees = membersString
+        .split(',')
+        .map(m => m.trim())
+        .filter(m => m.length > 0);
+    }
+    return this;
+  }
+
+  setDateRange(startDate, endDate, dateField = 'updated') {
+    this.startDate = startDate;
+    this.endDate = endDate;
+    this.dateField = dateField;
+    this.orderByField = dateField;
+    return this;
+  }
+
+  build() {
+    let jql = `project = "${this.project}"`;
+    if (this.assignees.length > 0) {
+      const membersQuery = this.assignees.map(m => `"${m}"`).join(', ');
+      jql += ` AND assignee in (${membersQuery})`;
+    }
+    if (this.statuses.length > 0) {
+      const statusesQuery = this.statuses.map(s => `"${s}"`).join(', ');
+      jql += ` AND status in (${statusesQuery})`;
+    }
+    if (this.startDate) {
+      jql += ` AND ${this.dateField} >= "${this.startDate}"`;
+    }
+    if (this.endDate) {
+      jql += ` AND ${this.dateField} <= "${this.endDate} 23:59"`;
+    }
+    jql += ` ORDER BY ${this.orderByField} ${this.orderDirection}`;
+    return jql;
+  }
+}
+
+// ============================================================================
+// 디자인 패턴: 2. Strategy Pattern - 업무 보고서 생성 전략 클래스들
+// ============================================================================
+class ReportStrategy {
+  generate(reportParams) {
+    throw new Error('generate method must be implemented');
+  }
+}
+
+class DailyReportStrategy extends ReportStrategy {
+  generate(reportParams) {
+    const { currList, nextList, start, end, proj, rawEvents, targetRegs, jiraUrl } = reportParams;
+    const todayObj = new Date();
+    const todayStr = `${todayObj.getFullYear()}-${String(todayObj.getMonth() + 1).padStart(2, '0')}-${String(todayObj.getDate()).padStart(2, '0')}`;
+    const activeDailyVacations = Array.isArray(rawEvents)
+      ? (rawEvents.length > 0 && typeof rawEvents[0] === 'string'
+          ? rawEvents
+          : getVacationMembers(rawEvents, todayStr, todayStr, targetRegs))
+      : [];
+
+    let dailyMd = `# 📅 일일 업무 STAND-UP 보고서\n\n`;
+    dailyMd += `> **보고 기간**: ${start} ~ ${end}\n`;
+    dailyMd += `> **생성 일시**: ${new Date().toLocaleString('ko-KR')}\n\n`;
+
+    const members = [...new Set(currList.map(t => t.assignee))];
+    const vacationOnlyMembers = activeDailyVacations.filter(v => !members.includes(v));
+    const allDailyMembers = [...members, ...vacationOnlyMembers];
+
+    if (allDailyMembers.length === 0) {
+      dailyMd += `조회 기간 내 진행 중이거나 완료된 티켓이 없습니다.\n`;
+    } else {
+      allDailyMembers.forEach(member => {
+        if (activeDailyVacations.includes(member)) {
+          dailyMd += `## 👤 담당자: ${member} (🏝️ 당일 연차/휴가)\n\n`;
+          dailyMd += `- 🏝️ 금일 연차(휴가) 일정으로 인해 Stand-up 보고 사항이 없습니다.\n\n---\n\n`;
+          return;
+        }
+
+        dailyMd += `## 👤 담당자: ${member}\n\n`;
+        const memberTickets = currList.filter(t => t.assignee === member);
+        const completed = memberTickets.filter(t => getStatusCategory(t.status) === 'Done');
+        const progressing = memberTickets.filter(t => getStatusCategory(t.status) === 'In Progress');
+
+        dailyMd += `### 🟢 오늘 완료한 업무 (Done)\n`;
+        if (completed.length === 0) {
+          dailyMd += `- 완료된 업무가 없습니다.\n`;
+        } else {
+          completed.forEach(t => {
+            const epicInfo = t.epic ? ` *(에픽: ${t.epic.key}: ${escapeBrackets(t.epic.summary)})*` : '';
+            dailyMd += `- [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key, jiraUrl)}) (업데이트: ${t.updated})${epicInfo}\n`;
+          });
+        }
+        dailyMd += `\n`;
+
+        dailyMd += `### 🔵 현재 진행 중인 업무 (In Progress)\n`;
+        if (progressing.length === 0) {
+          dailyMd += `- 진행 중인 업무가 없습니다.\n`;
+        } else {
+          progressing.forEach(t => {
+            const epicInfo = t.epic ? ` *(에픽: ${t.epic.key}: ${escapeBrackets(t.epic.summary)})*` : '';
+            dailyMd += `- [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key, jiraUrl)})${epicInfo}\n`;
+          });
+        }
+        dailyMd += `\n---\n\n`;
+      });
+    }
+    return dailyMd;
+  }
+}
+
+class WeeklyReportStrategy extends ReportStrategy {
+  generate(reportParams) {
+    const { currList, nextList, start, end, proj, rawEvents, targetRegs, jiraUrl } = reportParams;
+    const activeWeeklyVacations = Array.isArray(rawEvents)
+      ? (rawEvents.length > 0 && typeof rawEvents[0] === 'string'
+          ? rawEvents
+          : getVacationMembers(rawEvents, start, end, targetRegs))
+      : [];
+
+    const total = currList.length;
+    const completedCount = currList.filter(t => getStatusCategory(t.status) === 'Done').length;
+    const progressingCount = currList.filter(t => getStatusCategory(t.status) === 'In Progress').length;
+    const todoCount = total - completedCount - progressingCount;
+
+    let weeklyMd = `# 📊 주간 프로젝트 업무 보고서\n\n`;
+    weeklyMd += `## 🗓️ 1. 보고서 요약 개요\n\n`;
+    weeklyMd += `* **작성 일자**: ${new Date().toLocaleDateString('ko-KR')}\n`;
+    weeklyMd += `* **대상 기간**: ${start} ~ ${end}\n`;
+    weeklyMd += `* **프로젝트 코드**: \`${proj}\`\n\n`;
+
+    weeklyMd += `### 📈 2. 이번 주 진행 상태 메트릭스\n\n`;
+    weeklyMd += `| 티켓 상태 | 건수 | 완료율 / 비율 |\n`;
+    weeklyMd += `| :--- | :---: | :---: |\n`;
+    weeklyMd += `| **완료 (Done/Resolved)** | ${completedCount}건 | ${total > 0 ? Math.round((completedCount / total) * 100) : 0}% |\n`;
+    weeklyMd += `| **진행 중 (In Progress)** | ${progressingCount}건 | ${total > 0 ? Math.round((progressingCount / total) * 100) : 0}% |\n`;
+    weeklyMd += `| **대기 중 (To Do)** | ${todoCount}건 | ${total > 0 ? Math.round((todoCount / total) * 100) : 0}% |\n`;
+    weeklyMd += `| **합계 (Total)** | **${total}건** | **100%** |\n\n`;
+
+    weeklyMd += `## 📋 3. 팀원별 상세 업무 진행 현황\n\n`;
+
+    const members = [...new Set(currList.map(t => t.assignee))];
+    const weeklyVacationOnly = activeWeeklyVacations.filter(v => !members.includes(v));
+    const allWeeklyMembers = [...members, ...weeklyVacationOnly];
+
+    if (allWeeklyMembers.length === 0) {
+      weeklyMd += `* 조회 기간 내 상세 티켓 내역이 없습니다.\n`;
+    } else {
+      allWeeklyMembers.forEach(member => {
+        const isOnVacation = activeWeeklyVacations.includes(member);
+        weeklyMd += `### 👤 담당자: ${member}\n`;
+
+        if (isOnVacation) {
+          const vacDates = getMemberVacationDates(rawEvents, member, start, end);
+          weeklyMd += `* ${vacDates || '연차 (일정 확인 불가)'}\n`;
+        }
+
+        const memberTickets = currList.filter(t => t.assignee === member);
+        if (memberTickets.length === 0) {
+          if (!isOnVacation) {
+            weeklyMd += `* 진행한 티켓이 없습니다.\n`;
+          }
+        } else {
+          memberTickets.forEach(t => {
+            const cat = getStatusCategory(t.status);
+            const statusIndicator = (cat === 'Done') ? '✅' : (cat === 'In Progress') ? '🔄' : '⏱️';
+            const epicInfo = t.epic ? ` *(에픽: ${t.epic.key}: ${escapeBrackets(t.epic.summary)})*` : '';
+            weeklyMd += `* ${statusIndicator} [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key, jiraUrl)}) (\`${t.status}\`, 업데이트: ${t.updated})${epicInfo}\n`;
+          });
+        }
+        weeklyMd += `\n`;
+      });
+    }
+
+    weeklyMd += `## 🚀 4. 다음 주 주요 계획 및 이슈 사항\n\n`;
+    if (nextList.length === 0) {
+      weeklyMd += `* **마일스톤 점검**: 다음 주 예정된 지라 티켓이 등록되어 있지 않거나 계획을 불러올 수 없습니다.\n`;
+      weeklyMd += `* **장애 요인**: 예정된 주요 마일스톤에 지연 요소가 없는지 리스크 사전 점검.\n`;
+    } else {
+      const nextMembers = [...new Set(nextList.map(t => t.assignee))];
+      nextMembers.forEach(member => {
+        weeklyMd += `### 👤 담당자: ${member} 계획\n`;
+        const memberNext = nextList.filter(t => t.assignee === member);
+        memberNext.forEach(t => {
+          const cat = getStatusCategory(t.status);
+          const stateSymbol = cat === 'Done' ? '🟢 [완료예정]' : cat === 'In Progress' ? '🔄 [진행예정]' : '⏱️ [할일]';
+          const epicInfo = t.epic ? ` *(에픽: ${t.epic.key}: ${escapeBrackets(t.epic.summary)})*` : '';
+          weeklyMd += `* ${stateSymbol} [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key, jiraUrl)}) (\`${t.status}\`)${epicInfo}\n`;
+        });
+        weeklyMd += `\n`;
+      });
+    }
+
+    return weeklyMd;
+  }
+}
+
+class ReportContext {
+  constructor(strategy) {
+    this.strategy = strategy;
+  }
+
+  setStrategy(strategy) {
+    this.strategy = strategy;
+  }
+
+  generate(reportParams) {
+    return this.strategy.generate(reportParams);
+  }
+}
 
 export default function Home() {
   // SSR 하이드레이션 보호용 마운트 상태
@@ -408,42 +670,22 @@ export default function Home() {
   // 2. JQL 빌더 계산 함수
   // --------------------------------------------------------------------------
   const getJql = () => {
-    const proj = projectKey.trim() || 'PROJ';
-    const members = teamMembers.split(',').map(m => m.trim()).filter(m => m.length > 0);
-
-    let jql = `project = "${proj}"`;
-    if (members.length > 0) {
-      const membersQuery = members.map(m => `"${m}"`).join(', ');
-      jql += ` AND assignee in (${membersQuery})`;
-    }
-    jql += ` AND status in ("In Progress", "Done", "Resolved", "To Do")`;
-    if (dateStart) jql += ` AND updated >= "${dateStart}"`;
-    if (dateEnd) jql += ` AND updated <= "${dateEnd} 23:59"`;
-    jql += ` ORDER BY updated DESC`;
-    return jql;
+    return new JqlQueryBuilder()
+      .setProject(projectKey)
+      .setAssignees(teamMembers)
+      .setDateRange(dateStart, dateEnd, 'updated')
+      .build();
   };
 
   const getAnalyticsJql = () => {
-    const proj = analyticsProjectKey.trim() || 'PROJ';
-    const members = analyticsTeamMembers.split(',').map(m => m.trim()).filter(m => m.length > 0);
-
-    let jql = `project = "${proj}"`;
-    if (members.length > 0) {
-      const membersQuery = members.map(m => `"${m}"`).join(', ');
-      jql += ` AND assignee in (${membersQuery})`;
-    }
-    jql += ` AND status in ("In Progress", "Done", "Resolved", "To Do")`;
-    if (analyticsDateStart) jql += ` AND created >= "${analyticsDateStart}"`;
-    if (analyticsDateEnd) jql += ` AND created <= "${analyticsDateEnd} 23:59"`;
-    jql += ` ORDER BY created DESC`;
-    return jql;
+    return new JqlQueryBuilder()
+      .setProject(analyticsProjectKey)
+      .setAssignees(analyticsTeamMembers)
+      .setDateRange(analyticsDateStart, analyticsDateEnd, 'created')
+      .build();
   };
 
   const getNextWeekJql = () => {
-    const proj = projectKey.trim() || 'PROJ';
-    const members = teamMembers.split(',').map(m => m.trim()).filter(m => m.length > 0);
-
-    // 다음 주 날짜 범위 계산
     const start = dateStart || new Date().toISOString().split('T')[0];
     const end = dateEnd || new Date().toISOString().split('T')[0];
     const nextStart = new Date(start);
@@ -453,16 +695,11 @@ export default function Home() {
     nextEnd.setDate(nextEnd.getDate() + 7);
     const nextEndStr = nextEnd.toISOString().split('T')[0];
 
-    let jql = `project = "${proj}"`;
-    if (members.length > 0) {
-      const membersQuery = members.map(m => `"${m}"`).join(', ');
-      jql += ` AND assignee in (${membersQuery})`;
-    }
-    jql += ` AND status in ("In Progress", "Done", "Resolved", "To Do")`;
-    jql += ` AND updated >= "${nextStartStr}"`;
-    jql += ` AND updated <= "${nextEndStr} 23:59"`;
-    jql += ` ORDER BY updated DESC`;
-    return jql;
+    return new JqlQueryBuilder()
+      .setProject(projectKey)
+      .setAssignees(teamMembers)
+      .setDateRange(nextStartStr, nextEndStr, 'updated')
+      .build();
   };
 
   // --------------------------------------------------------------------------
@@ -698,30 +935,6 @@ export default function Home() {
       alert(`[회사 캘린더 연동 실패]\n\n원인: ${e.message}\n\n이 오류는 Google Cloud Console에서 Google Calendar API가 활성화되어 있지 않기 때문일 수 있습니다. 메시지에 포함된 URL에 방문하여 API를 활성화해 주세요.`);
       return [];
     }
-  };
-
-  const getVacationMembers = (events, startDate, endDate, registered) => {
-    console.log('[Calendar] getVacationMembers 시작 - 대상 범위:', startDate, '~', endDate, '| 등록 팀원:', registered);
-    if (!events || events.length === 0 || !startDate) {
-      console.log('[Calendar] 이벤트 목록이 비어있거나 날짜가 유효하지 않습니다.');
-      return [];
-    }
-
-    const vacations = [];
-    events.forEach(evt => {
-      if (isEventOverlapping(evt.start, evt.end, startDate, endDate)) {
-        const { isVacation, name } = parseVacationEvent(evt.summary);
-        if (isVacation && name) {
-          if (registered.includes(name) && !vacations.includes(name)) {
-            vacations.push(name);
-            console.log(`[Calendar] 연차 매칭 성공: ${name} (${evt.summary})`);
-          }
-        }
-      }
-    });
-
-    console.log('[Calendar] 최종 연차자 명단:', vacations);
-    return vacations;
   };
 
   // --------------------------------------------------------------------------
@@ -989,154 +1202,28 @@ export default function Home() {
     const rawEvents = customVacations !== null ? customVacations : vacationList;
     const targetRegs = activeRegs || registeredMembers;
 
-    let activeDailyVacations = [];
-    let activeWeeklyVacations = [];
+    const reportParams = {
+      currList,
+      nextList,
+      start,
+      end,
+      proj,
+      rawEvents,
+      targetRegs,
+      jiraUrl: url
+    };
 
-    // 오늘의 YYYY-MM-DD 구하기
-    const todayObj = new Date();
-    const todayStr = `${todayObj.getFullYear()}-${String(todayObj.getMonth() + 1).padStart(2, '0')}-${String(todayObj.getDate()).padStart(2, '0')}`;
-
-    if (Array.isArray(rawEvents)) {
-      if (rawEvents.length > 0 && typeof rawEvents[0] === 'string') {
-        // Fallback 또는 Mock 데이터 (이름 문자열 배열)
-        activeDailyVacations = rawEvents;
-        activeWeeklyVacations = rawEvents;
-      } else {
-        // 구글 캘린더 raw events 배열인 경우
-        // Daily: 오늘 날짜 기준
-        activeDailyVacations = getVacationMembers(rawEvents, todayStr, todayStr, targetRegs);
-        // Weekly: 주간 검색 범위(start ~ end) 기준
-        activeWeeklyVacations = getVacationMembers(rawEvents, start, end, targetRegs);
-      }
-    }
-
-    // 6-1. 일일 업무 보고서 빌드
-    let dailyMd = `# 📅 일일 업무 STAND-UP 보고서\n\n`;
-    dailyMd += `> **보고 기간**: ${start} ~ ${end}\n`;
-    dailyMd += `> **생성 일시**: ${new Date().toLocaleString('ko-KR')}\n\n`;
-
-    const members = [...new Set(currList.map(t => t.assignee))];
-
-    // 연차자 중 티켓이 없어서 members에 빠진 사람도 보고서에 포함
-    const vacationOnlyMembers = activeDailyVacations.filter(v => !members.includes(v));
-    const allDailyMembers = [...members, ...vacationOnlyMembers];
-
-    if (allDailyMembers.length === 0) {
-      dailyMd += `조회 기간 내 진행 중이거나 완료된 티켓이 없습니다.\n`;
-    } else {
-      allDailyMembers.forEach(member => {
-        if (activeDailyVacations.includes(member)) {
-          dailyMd += `## 👤 담당자: ${member} (🏝️ 당일 연차/휴가)\n\n`;
-          dailyMd += `- 🏝️ 금일 연차(휴가) 일정으로 인해 Stand-up 보고 사항이 없습니다.\n\n---\n\n`;
-          return;
-        }
-
-        dailyMd += `## 👤 담당자: ${member}\n\n`;
-        const memberTickets = currList.filter(t => t.assignee === member);
-        const completed = memberTickets.filter(t => getStatusCategory(t.status) === 'Done');
-        const progressing = memberTickets.filter(t => getStatusCategory(t.status) === 'In Progress');
-
-        dailyMd += `### 🟢 오늘 완료한 업무 (Done)\n`;
-        if (completed.length === 0) {
-          dailyMd += `- 완료된 업무가 없습니다.\n`;
-        } else {
-          completed.forEach(t => {
-            const epicInfo = t.epic ? ` *(에픽: ${t.epic.key}: ${escapeBrackets(t.epic.summary)})*` : '';
-            dailyMd += `- [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key, url)}) (업데이트: ${t.updated})${epicInfo}\n`;
-          });
-        }
-        dailyMd += `\n`;
-
-        dailyMd += `### 🔵 현재 진행 중인 업무 (In Progress)\n`;
-        if (progressing.length === 0) {
-          dailyMd += `- 진행 중인 업무가 없습니다.\n`;
-        } else {
-          progressing.forEach(t => {
-            const epicInfo = t.epic ? ` *(에픽: ${t.epic.key}: ${escapeBrackets(t.epic.summary)})*` : '';
-            dailyMd += `- [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key, url)})${epicInfo}\n`;
-          });
-        }
-        dailyMd += `\n---\n\n`;
-      });
-    }
+    // Strategy Pattern Context를 이용한 일일 및 주간 보고서 생성
+    const dailyContext = new ReportContext(new DailyReportStrategy());
+    const dailyMd = dailyContext.generate(reportParams);
     setDailyReportMd(dailyMd);
 
-    // 6-2. 주간 업무 보고서 빌드
-    const total = currList.length;
-    const completedCount = currList.filter(t => getStatusCategory(t.status) === 'Done').length;
-    const progressingCount = currList.filter(t => getStatusCategory(t.status) === 'In Progress').length;
-    const todoCount = total - completedCount - progressingCount;
-
-    let weeklyMd = `# 📊 주간 프로젝트 업무 보고서\n\n`;
-    weeklyMd += `## 🗓️ 1. 보고서 요약 개요\n\n`;
-    weeklyMd += `* **작성 일자**: ${new Date().toLocaleDateString('ko-KR')}\n`;
-    weeklyMd += `* **대상 기간**: ${start} ~ ${end}\n`;
-    weeklyMd += `* **프로젝트 코드**: \`${proj}\`\n\n`;
-
-    weeklyMd += `### 📈 2. 이번 주 진행 상태 메트릭스\n\n`;
-    weeklyMd += `| 티켓 상태 | 건수 | 완료율 / 비율 |\n`;
-    weeklyMd += `| :--- | :---: | :---: |\n`;
-    weeklyMd += `| **완료 (Done/Resolved)** | ${completedCount}건 | ${total > 0 ? Math.round((completedCount / total) * 100) : 0}% |\n`;
-    weeklyMd += `| **진행 중 (In Progress)** | ${progressingCount}건 | ${total > 0 ? Math.round((progressingCount / total) * 100) : 0}% |\n`;
-    weeklyMd += `| **대기 중 (To Do)** | ${todoCount}건 | ${total > 0 ? Math.round((todoCount / total) * 100) : 0}% |\n`;
-    weeklyMd += `| **합계 (Total)** | **${total}건** | **100%** |\n\n`;
-
-    weeklyMd += `## 📋 3. 팀원별 상세 업무 진행 현황\n\n`;
-
-    // 연차자 중 티켓이 없어서 members에 빠진 사람도 주간 보고서에 포함
-    const weeklyVacationOnly = activeWeeklyVacations.filter(v => !members.includes(v));
-    const allWeeklyMembers = [...members, ...weeklyVacationOnly];
-
-    if (allWeeklyMembers.length === 0) {
-      weeklyMd += `* 조회 기간 내 상세 티켓 내역이 없습니다.\n`;
-    } else {
-      allWeeklyMembers.forEach(member => {
-        const isOnVacation = activeWeeklyVacations.includes(member);
-        weeklyMd += `### 👤 담당자: ${member}\n`;
-
-        if (isOnVacation) {
-          const vacDates = getMemberVacationDates(rawEvents, member, start, end);
-          weeklyMd += `* ${vacDates || '연차 (일정 확인 불가)'}\n`;
-        }
-
-        const memberTickets = currList.filter(t => t.assignee === member);
-        if (memberTickets.length === 0) {
-          if (!isOnVacation) {
-            weeklyMd += `* 진행한 티켓이 없습니다.\n`;
-          }
-        } else {
-          memberTickets.forEach(t => {
-            const cat = getStatusCategory(t.status);
-            const statusIndicator = (cat === 'Done') ? '✅' : (cat === 'In Progress') ? '🔄' : '⏱️';
-            const epicInfo = t.epic ? ` *(에픽: ${t.epic.key}: ${escapeBrackets(t.epic.summary)})*` : '';
-            weeklyMd += `* ${statusIndicator} [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key, url)}) (\`${t.status}\`, 업데이트: ${t.updated})${epicInfo}\n`;
-          });
-        }
-        weeklyMd += `\n`;
-      });
-    }
-
-    weeklyMd += `## 🚀 4. 다음 주 주요 계획 및 이슈 사항\n\n`;
-    if (nextList.length === 0) {
-      weeklyMd += `* **마일스톤 점검**: 다음 주 예정된 지라 티켓이 등록되어 있지 않거나 계획을 불러올 수 없습니다.\n`;
-      weeklyMd += `* **장애 요인**: 예정된 주요 마일스톤에 지연 요소가 없는지 리스크 사전 점검.\n`;
-    } else {
-      const nextMembers = [...new Set(nextList.map(t => t.assignee))];
-      nextMembers.forEach(member => {
-        weeklyMd += `### 👤 담당자: ${member} 계획\n`;
-        const memberNext = nextList.filter(t => t.assignee === member);
-        memberNext.forEach(t => {
-          const cat = getStatusCategory(t.status);
-          const stateSymbol = cat === 'Done' ? '🟢 [완료예정]' : cat === 'In Progress' ? '🔄 [진행예정]' : '⏱️ [할일]';
-          const epicInfo = t.epic ? ` *(에픽: ${t.epic.key}: ${escapeBrackets(t.epic.summary)})*` : '';
-          weeklyMd += `* ${stateSymbol} [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key, url)}) (\`${t.status}\`)${epicInfo}\n`;
-        });
-        weeklyMd += `\n`;
-      });
-    }
-
+    const weeklyContext = new ReportContext(new WeeklyReportStrategy());
+    const weeklyMd = weeklyContext.generate(reportParams);
     setWeeklyReportMd(weeklyMd);
-  };// --------------------------------------------------------------------------
+  };
+
+  // --------------------------------------------------------------------------
   // 7. 설정 저장 & 로컬스토리지 동기화 핸들러
   // --------------------------------------------------------------------------
   const handleSaveSettings = () => {
@@ -1390,17 +1477,6 @@ export default function Home() {
   // --------------------------------------------------------------------------
   // 10. 유틸리티 보조 함수 (상태 정규화 & 마크다운 HTML 간이 파서)
   // --------------------------------------------------------------------------
-  const getStatusCategory = (statusName) => {
-    const status = (statusName || '').toLowerCase().trim();
-    if (status.includes('done') || status.includes('resolved') || status.includes('완료') || status.includes('closed') || status.includes('성공')) {
-      return 'Done';
-    }
-    if (status.includes('progress') || status.includes('진행') || status.includes('doing') || status.includes('개발') || status.includes('selected') || status.includes('working')) {
-      return 'In Progress';
-    }
-    return 'To Do';
-  };
-
   const parseMarkdownToHtml = (markdown) => {
     if (!markdown) return '';
     let html = markdown;
