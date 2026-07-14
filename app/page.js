@@ -1209,15 +1209,23 @@ export default function Home() {
         return Math.round((doneCount / group.length) * 100);
       };
 
-      // 에픽 기한 산출 (소속 티켓의 duedate 중 가장 늦은 날짜)
-      const dueDates = epic.tickets.map(t => t.duedate).filter(d => !!d);
-      const epicDueDate = dueDates.length > 0
-        ? dueDates.sort().reverse()[0]
+      // 에픽 시작 날짜 산출 (소속 티켓의 created 중 가장 빠른 날짜)
+      const createdDates = epic.tickets.map(t => t.created).filter(d => !!d);
+      const epicStartDate = createdDates.length > 0
+        ? createdDates.sort()[0]
         : '';
+
+      // 에픽 종료 날짜 산출 (소속 티켓의 duedate 중 가장 늦은 날짜. 없으면 updated 중 가장 늦은 날짜)
+      const dueDates = epic.tickets.map(t => t.duedate).filter(d => !!d);
+      const fallbackDates = epic.tickets.map(t => t.updated).filter(d => !!d);
+      const epicEndDate = dueDates.length > 0
+        ? dueDates.sort().reverse()[0]
+        : (fallbackDates.length > 0 ? fallbackDates.sort().reverse()[0] : '');
 
       return {
         ...epic,
-        dueDate: epicDueDate,
+        startDate: epicStartDate,
+        endDate: epicEndDate,
         beProgress: getProgress(beTickets),
         feProgress: getProgress(feTickets),
         moProgress: getProgress(moTickets),
@@ -2321,7 +2329,11 @@ export default function Home() {
                           <div className="epic-title-group">
                             <span className="epic-badge">{epic.key}</span>
                             <h4 className="epic-summary">{epic.summary}</h4>
-                            {epic.dueDate && <span className="epic-due-date-badge">📅 기한: {epic.dueDate}</span>}
+                            {epic.startDate && epic.endDate && (
+                              <span className="epic-due-date-badge">
+                                📅 기간: {epic.startDate} ~ {epic.endDate}
+                              </span>
+                            )}
                           </div>
 
                           {/* 진행율 통계 요약 */}
