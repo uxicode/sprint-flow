@@ -146,7 +146,7 @@ class JqlQueryBuilder {
   constructor() {
     this.project = 'PROJ';
     this.assignees = [];
-    this.statuses = ['In Progress', 'Done', 'Resolved', 'To Do'];
+    this.statuses = [];
     this.dateField = 'updated';
     this.startDate = '';
     this.endDate = '';
