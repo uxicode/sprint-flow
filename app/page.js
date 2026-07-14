@@ -1155,6 +1155,75 @@ export default function Home() {
     }
   };
 
+  // 에픽별 일정 및 진행률 계산 유틸
+  const getEpicScheduleData = () => {
+    const allTickets = [];
+    const seenKeys = new Set();
+    [...tickets, ...nextTickets].forEach(t => {
+      if (!seenKeys.has(t.key)) {
+        seenKeys.add(t.key);
+        allTickets.push(t);
+      }
+    });
+
+    const epicsMap = {};
+
+    allTickets.forEach(t => {
+      const epicKey = t.epic ? t.epic.key : 'NO_EPIC';
+      const epicSummary = t.epic ? t.epic.summary : '에픽 없음 (기타 업무)';
+
+      if (!epicsMap[epicKey]) {
+        epicsMap[epicKey] = {
+          key: epicKey,
+          summary: epicSummary,
+          tickets: []
+        };
+      }
+      epicsMap[epicKey].tickets.push(t);
+    });
+
+    const epicsList = Object.values(epicsMap).map(epic => {
+      const beTickets = epic.tickets.filter(t => (t.summary || '').includes('[BE]'));
+      const feTickets = epic.tickets.filter(t => (t.summary || '').includes('[FE]'));
+      const moTickets = epic.tickets.filter(t => (t.summary || '').includes('[MO]'));
+      const otherTickets = epic.tickets.filter(t => {
+        const sum = t.summary || '';
+        return !sum.includes('[BE]') && !sum.includes('[FE]') && !sum.includes('[MO]');
+      });
+
+      const getProgress = (group) => {
+        if (group.length === 0) return null;
+        const doneCount = group.filter(t => getStatusCategory(t.status) === 'Done').length;
+        return Math.round((doneCount / group.length) * 100);
+      };
+
+      return {
+        ...epic,
+        beProgress: getProgress(beTickets),
+        feProgress: getProgress(feTickets),
+        moProgress: getProgress(moTickets),
+        beCount: beTickets.length,
+        feCount: feTickets.length,
+        moCount: moTickets.length,
+        beDoneCount: beTickets.filter(t => getStatusCategory(t.status) === 'Done').length,
+        feDoneCount: feTickets.filter(t => getStatusCategory(t.status) === 'Done').length,
+        moDoneCount: moTickets.filter(t => getStatusCategory(t.status) === 'Done').length,
+        categorizedTickets: {
+          BE: beTickets,
+          FE: feTickets,
+          MO: moTickets,
+          OTHER: otherTickets
+        }
+      };
+    });
+
+    return epicsList.sort((a, b) => {
+      if (a.key === 'NO_EPIC') return 1;
+      if (b.key === 'NO_EPIC') return -1;
+      return a.key.localeCompare(b.key);
+    });
+  };
+
   // 실적 분석 기간 단독 조회 핸들러
   const handleFetchAnalyticsTickets = async (start, end) => {
     setIsAnalyticsLoading(true);
@@ -2098,6 +2167,13 @@ export default function Home() {
               >
                 조회된 티켓 목록
               </button>
+              <button
+                type="button"
+                className={`tab-btn ${activeTab === 'tab-schedule' ? 'active' : ''}`}
+                onClick={() => setActiveTab('tab-schedule')}
+              >
+                🗓️ 일정관리
+              </button>
             </div>
             <div className="tab-actions">
               <button type="button" onClick={handleCopyReport} className="btn btn-secondary btn-sm">
@@ -2197,6 +2273,144 @@ export default function Home() {
                     )}
                   </tbody>
                 </table>
+              </div>
+            </div>
+
+            {/* 일정관리 탭 */}
+            <div className={`tab-content ${activeTab === 'tab-schedule' ? 'active' : ''}`}>
+              <div className="schedule-management-container">
+                <div className="schedule-header-summary">
+                  <h3>🗓️ 에픽별 프로젝트 개발 일정 및 진행 상황</h3>
+                  <p className="subtitle">각 에픽 하위 티켓의 제목 태그([BE], [FE], [MO]) 기준 진행율 통계</p>
+                </div>
+
+                <div className="epic-cards-grid">
+                  {getEpicScheduleData().length === 0 ? (
+                    <div className="empty-state" style={{ textAlign: 'center', padding: '4rem 2rem', color: 'var(--text-muted)' }}>
+                      <p>조회된 티켓 데이터가 없습니다. 상단 필터를 입력하고 조회를 먼저 진행해 주세요.</p>
+                    </div>
+                  ) : (
+                    getEpicScheduleData().map(epic => (
+                      <div key={epic.key} className="epic-schedule-card">
+                        <div className="epic-card-header">
+                          <div className="epic-title-group">
+                            <span className="epic-badge">{epic.key}</span>
+                            <h4 className="epic-summary">{epic.summary}</h4>
+                          </div>
+                          
+                          {/* 진행율 통계 요약 */}
+                          <div className="epic-stats-row">
+                            {epic.beProgress !== null && (
+                              <div className="stat-badge be">
+                                <span className="label">BE</span>
+                                <span className="value">{epic.beProgress}% ({epic.beDoneCount}/{epic.beCount})</span>
+                                <div className="mini-progress-bar">
+                                  <div className="fill" style={{ width: `${epic.beProgress}%` }}></div>
+                                </div>
+                              </div>
+                            )}
+                            {epic.feProgress !== null && (
+                              <div className="stat-badge fe">
+                                <span className="label">FE</span>
+                                <span className="value">{epic.feProgress}% ({epic.feDoneCount}/{epic.feCount})</span>
+                                <div className="mini-progress-bar">
+                                  <div className="fill" style={{ width: `${epic.feProgress}%` }}></div>
+                                </div>
+                              </div>
+                            )}
+                            {epic.moProgress !== null && (
+                              <div className="stat-badge mo">
+                                <span className="label">MO</span>
+                                <span className="value">{epic.moProgress}% ({epic.moDoneCount}/{epic.moCount})</span>
+                                <div className="mini-progress-bar">
+                                  <div className="fill" style={{ width: `${epic.moProgress}%` }}></div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="epic-card-body">
+                          {/* BE 티켓 */}
+                          {epic.categorizedTickets.BE.length > 0 && (
+                            <div className="category-group">
+                              <h5>💻 Backend 티켓 ({epic.categorizedTickets.BE.length})</h5>
+                              <ul className="schedule-ticket-list">
+                                {epic.categorizedTickets.BE.map(t => (
+                                  <li key={t.key} className="schedule-ticket-item">
+                                    <span className="ticket-key-link" onClick={() => window.open(getTicketLink(t.key, url), '_blank')}>{t.key}</span>
+                                    <span className="ticket-summary-text">{t.summary}</span>
+                                    <div className="ticket-meta">
+                                      <span className="assignee">👤 {t.assignee || '미지정'}</span>
+                                      <span className={`status-tag ${getStatusCategory(t.status).toLowerCase().replace(' ', '-')}`}>{t.status}</span>
+                                    </div>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+
+                          {/* FE 티켓 */}
+                          {epic.categorizedTickets.FE.length > 0 && (
+                            <div className="category-group">
+                              <h5>🎨 Frontend 티켓 ({epic.categorizedTickets.FE.length})</h5>
+                              <ul className="schedule-ticket-list">
+                                {epic.categorizedTickets.FE.map(t => (
+                                  <li key={t.key} className="schedule-ticket-item">
+                                    <span className="ticket-key-link" onClick={() => window.open(getTicketLink(t.key, url), '_blank')}>{t.key}</span>
+                                    <span className="ticket-summary-text">{t.summary}</span>
+                                    <div className="ticket-meta">
+                                      <span className="assignee">👤 {t.assignee || '미지정'}</span>
+                                      <span className={`status-tag ${getStatusCategory(t.status).toLowerCase().replace(' ', '-')}`}>{t.status}</span>
+                                    </div>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+
+                          {/* MO 티켓 */}
+                          {epic.categorizedTickets.MO.length > 0 && (
+                            <div className="category-group">
+                              <h5>📱 Mobile 티켓 ({epic.categorizedTickets.MO.length})</h5>
+                              <ul className="schedule-ticket-list">
+                                {epic.categorizedTickets.MO.map(t => (
+                                  <li key={t.key} className="schedule-ticket-item">
+                                    <span className="ticket-key-link" onClick={() => window.open(getTicketLink(t.key, url), '_blank')}>{t.key}</span>
+                                    <span className="ticket-summary-text">{t.summary}</span>
+                                    <div className="ticket-meta">
+                                      <span className="assignee">👤 {t.assignee || '미지정'}</span>
+                                      <span className={`status-tag ${getStatusCategory(t.status).toLowerCase().replace(' ', '-')}`}>{t.status}</span>
+                                    </div>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+
+                          {/* 기타 티켓 */}
+                          {epic.categorizedTickets.OTHER.length > 0 && (
+                            <div className="category-group">
+                              <h5>📄 기타 티켓 ({epic.categorizedTickets.OTHER.length})</h5>
+                              <ul className="schedule-ticket-list">
+                                {epic.categorizedTickets.OTHER.map(t => (
+                                  <li key={t.key} className="schedule-ticket-item">
+                                    <span className="ticket-key-link" onClick={() => window.open(getTicketLink(t.key, url), '_blank')}>{t.key}</span>
+                                    <span className="ticket-summary-text">{t.summary}</span>
+                                    <div className="ticket-meta">
+                                      <span className="assignee">👤 {t.assignee || '미지정'}</span>
+                                      <span className={`status-tag ${getStatusCategory(t.status).toLowerCase().replace(' ', '-')}`}>{t.status}</span>
+                                    </div>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
             </div>
           </div>

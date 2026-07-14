@@ -1385,6 +1385,245 @@ input:checked+.slider:before {
 }
 
 @keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+}
+
+/* ==========================================================================
+   Epic Schedule Management Tab Styles
+   ========================================================================== */
+.schedule-management-container {
+  padding: 1rem 0;
+}
+
+.schedule-header-summary {
+  margin-bottom: 1.5rem;
+}
+
+.schedule-header-summary h3 {
+  font-size: 1.25rem;
+  color: var(--color-accent);
+  margin-bottom: 0.25rem;
+}
+
+.schedule-header-summary .subtitle {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
+.epic-cards-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.epic-schedule-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  transition: transform 0.2s, border-color 0.2s;
+}
+
+.epic-schedule-card:hover {
+  border-color: rgba(0, 242, 254, 0.3);
+}
+
+.epic-card-header {
+  background: rgba(0, 0, 0, 0.25);
+  border-bottom: 1px solid var(--border-color);
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.epic-title-group {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.epic-badge {
+  background: var(--color-accent-gradient);
+  color: #0d1117;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.25rem 0.6rem;
+  border-radius: 4px;
+}
+
+.epic-summary {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.epic-stats-row {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.stat-badge {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-md);
+  padding: 0.375rem 0.75rem;
+  min-width: 120px;
+  position: relative;
+}
+
+.stat-badge.be {
+  border-left: 3px solid var(--color-success);
+}
+.stat-badge.fe {
+  border-left: 3px solid var(--color-accent);
+}
+.stat-badge.mo {
+  border-left: 3px solid var(--raw-neon-purple);
+}
+
+.stat-badge .label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.stat-badge .value {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.stat-badge .mini-progress-bar {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 0.25rem;
+  width: 100%;
+}
+
+.stat-badge .mini-progress-bar .fill {
+  height: 100%;
+  border-radius: 2px;
+}
+
+.stat-badge.be .mini-progress-bar .fill {
+  background: var(--color-success);
+}
+.stat-badge.fe .mini-progress-bar .fill {
+  background: var(--color-accent);
+}
+.stat-badge.mo .mini-progress-bar .fill {
+  background: var(--raw-neon-purple);
+}
+
+.epic-card-body {
+  padding: 1.5rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+}
+
+.category-group {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.02);
+}
+
+.category-group h5 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+  color: var(--text-muted);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.schedule-ticket-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.schedule-ticket-item {
+  background: rgba(255, 255, 255, 0.01);
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  border-radius: 6px;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.825rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.schedule-ticket-item:hover {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+.ticket-key-link {
+  font-weight: 600;
+  color: var(--color-accent);
+  cursor: pointer;
+  text-decoration: underline;
+  align-self: flex-start;
+}
+
+.ticket-summary-text {
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.ticket-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+}
+
+.ticket-meta .assignee {
+  color: var(--text-muted);
+}
+
+.ticket-meta .status-tag {
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.125rem 0.4rem;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+
+.ticket-meta .status-tag.done {
+  background: rgba(0, 255, 135, 0.08);
+  color: var(--color-success);
+  border: 1px solid rgba(0, 255, 135, 0.15);
+}
+
+.ticket-meta .status-tag.in-progress {
+  background: rgba(0, 242, 254, 0.08);
+  color: var(--color-accent);
+  border: 1px solid rgba(0, 242, 254, 0.15);
+}
+
+.ticket-meta .status-tag.to-do {
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-muted);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
