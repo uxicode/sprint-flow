@@ -3,6 +3,109 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import PerformanceAnalytics from './components/PerformanceAnalytics';
 
+// ============================================================================
+// 캘린더 및 티켓 파싱에 필요한 Stateless 공통 유틸리티 함수들
+// ============================================================================
+
+// 티켓 제목 내 대괄호 [ ]를 ( )로 안전하게 변경하여 마크다운 링크 파서 깨짐 현상 예방
+const escapeBrackets = (text) => {
+  return (text || '').replace(/\[/g, '(').replace(/\]/g, ')');
+};
+
+// Jira 티켓의 상세 웹 브라우징 링크 생성
+const getTicketLink = (key, jiraUrl) => {
+  const baseDomain = jiraUrl && jiraUrl.trim() ? jiraUrl.trim().replace(/\/$/, '') : 'https://ikoobdoc.atlassian.net';
+  return `${baseDomain}/browse/${key}`;
+};
+
+// 캘린더 날짜 필드(date 또는 dateTime)를 YYYY-MM-DD 로컬 시간 문자열로 변환
+const getLocalDateStr = (dateObj) => {
+  if (!dateObj) return '';
+  if (dateObj.date) return dateObj.date; // YYYY-MM-DD
+  if (dateObj.dateTime) {
+    const d = new Date(dateObj.dateTime);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  return '';
+};
+
+// 캘린더 이벤트 요약 내용에서 연차 유형과 신청 팀원 이름을 추출
+const parseVacationEvent = (summary) => {
+  if (!summary) return { isVacation: false, name: '', matchedWord: '' };
+
+  // 1. 대괄호 접두사 형태 매칭: [연차] 최석호, [오후반반차] 김용권
+  const bracketMatch = summary.match(/^\[([^\]]+)\]\s*([가-힣a-zA-Z0-9\s]+)/);
+  if (bracketMatch) {
+    const type = bracketMatch[1];
+    const keywords = ['연차', '휴가', '반차', '대체휴무', '건강검진', '반반차', '오후반반차', '오전반반차', '오전반차', '오후반차', '유연근무'];
+    const isVacation = keywords.some(k => type.includes(k));
+    if (isVacation) {
+      return {
+        isVacation: true,
+        name: bracketMatch[2].trim(),
+        matchedWord: type.trim()
+      };
+    }
+  }
+
+  // 2. 접미사 형태 매칭: 홍길동 연차, 김철수 반차
+  const suffixMatch = summary.match(/^([가-힣a-zA-Z0-9\s]+?)\s*(연차|휴가|반차|대체휴무|건강검진|오후반반차|오전반반차|오전반차|오후반차|유연근무)/);
+  if (suffixMatch) {
+    return {
+      isVacation: true,
+      name: suffixMatch[1].trim(),
+      matchedWord: suffixMatch[2].trim()
+    };
+  }
+
+  return { isVacation: false, name: '', matchedWord: '' };
+};
+
+// 캘린더 이벤트의 일정과 대상 조회 범위가 중첩되는지 확인
+const isEventOverlapping = (evtStart, evtEnd, startRange, endRange) => {
+  const eventStartDate = getLocalDateStr(evtStart);
+  const eventEndDate = getLocalDateStr(evtEnd);
+  if (!eventStartDate) return false;
+
+  const targetEnd = endRange || startRange;
+  if (evtStart?.date) {
+    // 올데이 이벤트: exclusive end date이므로 > startRange
+    return eventStartDate <= targetEnd && eventEndDate > startRange;
+  }
+  // 일반 시간대 이벤트
+  return eventStartDate <= targetEnd && eventEndDate >= startRange;
+};
+
+// 특정 팀원의 기간 내 모든 연차 이력을 문자열로 요약
+const getMemberVacationDates = (events, member, startRange, endRange) => {
+  if (!Array.isArray(events)) return '';
+  const vacationStrings = [];
+  events.forEach(evt => {
+    const summary = evt.summary || '';
+    if (isEventOverlapping(evt.start, evt.end, startRange, endRange)) {
+      const { isVacation, name, matchedWord } = parseVacationEvent(summary);
+      if (isVacation && name === member) {
+        const eventStartDate = getLocalDateStr(evt.start);
+        let dateStr = '';
+        if (evt.start?.date) {
+          const d = new Date(evt.end.date);
+          d.setDate(d.getDate() - 1);
+          const formattedEndDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          dateStr = eventStartDate === formattedEndDate ? eventStartDate : `${eventStartDate} ~ ${formattedEndDate}`;
+        } else {
+          const eventEndDate = getLocalDateStr(evt.end);
+          dateStr = eventStartDate === eventEndDate ? eventStartDate : `${eventStartDate} ~ ${eventEndDate}`;
+        }
+        vacationStrings.push(`${matchedWord} (${dateStr})`);
+      }
+    }
+  });
+  return vacationStrings.join(', ');
+};
+
 export default function Home() {
   // SSR 하이드레이션 보호용 마운트 상태
   const [mounted, setMounted] = useState(false);
@@ -604,63 +707,14 @@ export default function Home() {
       return [];
     }
 
-    const getLocalDateStr = (dateObj) => {
-      if (!dateObj) return '';
-      if (dateObj.date) return dateObj.date; // YYYY-MM-DD
-      if (dateObj.dateTime) {
-        const d = new Date(dateObj.dateTime);
-        const yyyy = d.getFullYear();
-        const mm = String(d.getMonth() + 1).padStart(2, '0');
-        const dd = String(d.getDate()).padStart(2, '0');
-        return `${yyyy}-${mm}-${dd}`;
-      }
-      return '';
-    };
-
     const vacations = [];
-    const targetEnd = endDate || startDate;
-
     events.forEach(evt => {
-      const summary = evt.summary || '';
-      const eventStartDate = getLocalDateStr(evt.start);
-      const eventEndDate = getLocalDateStr(evt.end);
-
-      if (!eventStartDate) return;
-
-      // 기간 중첩(overlap) 여부 확인
-      let isWithinRange = false;
-      if (evt.start?.date) {
-        isWithinRange = eventStartDate <= targetEnd && eventEndDate > startDate;
-      } else {
-        isWithinRange = eventStartDate <= targetEnd && eventEndDate >= startDate;
-      }
-
-      if (isWithinRange) {
-        let name = '';
-        let isVacationEvent = false;
-
-        // 1. 대괄호 접두사 형태 매칭: [연차] 최석호, [오후반반차] 김용권
-        const bracketMatch = summary.match(/^\[([^\]]+)\]\s*([가-힣a-zA-Z0-9\s]+)/);
-        if (bracketMatch) {
-          const type = bracketMatch[1];
-          const keywords = ['연차', '휴가', '반차', '대체휴무', '건강검진', '반반차'];
-          isVacationEvent = keywords.some(k => type.includes(k));
-          if (isVacationEvent) {
-            name = bracketMatch[2].trim();
-          }
-        } else {
-          // 2. 접미사 형태 매칭: 홍길동 연차, 김철수 반차
-          const suffixMatch = summary.match(/^([가-힣a-zA-Z0-9\s]+?)\s*(연차|휴가|반차|대체휴무|건강검진)/);
-          if (suffixMatch) {
-            isVacationEvent = true;
-            name = suffixMatch[1].trim();
-          }
-        }
-
-        if (isVacationEvent && name) {
+      if (isEventOverlapping(evt.start, evt.end, startDate, endDate)) {
+        const { isVacation, name } = parseVacationEvent(evt.summary);
+        if (isVacation && name) {
           if (registered.includes(name) && !vacations.includes(name)) {
             vacations.push(name);
-            console.log(`[Calendar] 연차 매칭 성공: ${name} (${summary})`);
+            console.log(`[Calendar] 연차 매칭 성공: ${name} (${evt.summary})`);
           }
         }
       }
@@ -932,92 +986,6 @@ export default function Home() {
   // 6. 보고서 마크다운 생성기
   // --------------------------------------------------------------------------
   const processReportData = (currList, nextList, start, end, proj, customVacations = null, activeRegs = null) => {
-    const getTicketLink = (key) => {
-      const baseDomain = url && url.trim() ? url.trim().replace(/\/$/, '') : 'https://ikoobdoc.atlassian.net';
-      return `${baseDomain}/browse/${key}`;
-    };
-
-    // 티켓 제목 내 대괄호 [ ]를 ( )로 안전하게 변경하여 마크다운 링크 파서 깨짐 현상 예방
-    const escapeBrackets = (text) => {
-      return (text || '')
-        .replace(/\[/g, '(')
-        .replace(/\]/g, ')');
-    };
-
-    const getLocalDateStr = (dateObj) => {
-      if (!dateObj) return '';
-      if (dateObj.date) return dateObj.date; // YYYY-MM-DD
-      if (dateObj.dateTime) {
-        const d = new Date(dateObj.dateTime);
-        const yyyy = d.getFullYear();
-        const mm = String(d.getMonth() + 1).padStart(2, '0');
-        const dd = String(d.getDate()).padStart(2, '0');
-        return `${yyyy}-${mm}-${dd}`;
-      }
-      return '';
-    };
-
-    const getMemberVacationDates = (events, member, startRange, endRange) => {
-      if (!Array.isArray(events)) return '';
-      const dateStrings = [];
-      events.forEach(evt => {
-        const summary = evt.summary || '';
-        const eventStartDate = getLocalDateStr(evt.start);
-        const eventEndDate = getLocalDateStr(evt.end);
-        if (!eventStartDate) return;
-
-        let isWithinRange = false;
-        if (evt.start?.date) {
-          isWithinRange = eventStartDate <= endRange && eventEndDate > startRange;
-        } else {
-          isWithinRange = eventStartDate <= endRange && eventEndDate >= startRange;
-        }
-
-        if (isWithinRange) {
-          let name = '';
-          let isVacationEvent = false;
-
-          const bracketMatch = summary.match(/^\[([^\]]+)\]\s*([가-힣a-zA-Z0-9\s]+)/);
-          if (bracketMatch) {
-            const type = bracketMatch[1];
-            const keywords = ['연차', '휴가', '반차', '대체휴무', '건강검진', '반반차', '오후반반차', '오전반반차', '오전반차', '오후반차', '유연근무', '대체휴무'];
-            isVacationEvent = keywords.some(k => type.includes(k));
-            if (isVacationEvent) {
-              name = bracketMatch[2].trim();
-            }
-          } else {
-            const suffixMatch = summary.match(/^([가-힣a-zA-Z0-9\s]+?)\s*(연차|휴가|반차|대체휴무|건강검진|오후반반차|오전반반차|오전반차|오후반차|유연근무|대체휴무)/);
-            if (suffixMatch) {
-              isVacationEvent = true;
-              name = suffixMatch[1].trim();
-            }
-          }
-
-          if (isVacationEvent && name === member) {
-            if (evt.start?.date) {
-              // all-day event (exclusive end date)
-              const d = new Date(evt.end.date);
-              d.setDate(d.getDate() - 1);
-              const formattedEndDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-
-              if (eventStartDate === formattedEndDate) {
-                dateStrings.push(eventStartDate);
-              } else {
-                dateStrings.push(`${eventStartDate} ~ ${formattedEndDate}`);
-              }
-            } else {
-              if (eventStartDate === eventEndDate) {
-                dateStrings.push(eventStartDate);
-              } else {
-                dateStrings.push(`${eventStartDate} ~ ${eventEndDate}`);
-              }
-            }
-          }
-        }
-      });
-      return dateStrings.join(', ');
-    };
-
     const rawEvents = customVacations !== null ? customVacations : vacationList;
     const targetRegs = activeRegs || registeredMembers;
 
@@ -1074,7 +1042,7 @@ export default function Home() {
         } else {
           completed.forEach(t => {
             const epicInfo = t.epic ? ` *(에픽: ${t.epic.key}: ${escapeBrackets(t.epic.summary)})*` : '';
-            dailyMd += `- [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key)}) (업데이트: ${t.updated})${epicInfo}\n`;
+            dailyMd += `- [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key, url)}) (업데이트: ${t.updated})${epicInfo}\n`;
           });
         }
         dailyMd += `\n`;
@@ -1085,7 +1053,7 @@ export default function Home() {
         } else {
           progressing.forEach(t => {
             const epicInfo = t.epic ? ` *(에픽: ${t.epic.key}: ${escapeBrackets(t.epic.summary)})*` : '';
-            dailyMd += `- [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key)})${epicInfo}\n`;
+            dailyMd += `- [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key, url)})${epicInfo}\n`;
           });
         }
         dailyMd += `\n---\n\n`;
@@ -1128,7 +1096,7 @@ export default function Home() {
 
         if (isOnVacation) {
           const vacDates = getMemberVacationDates(rawEvents, member, start, end);
-          weeklyMd += `* 연차 (${vacDates || '일정 확인 불가'})\n`;
+          weeklyMd += `* ${vacDates || '연차 (일정 확인 불가)'}\n`;
         }
 
         const memberTickets = currList.filter(t => t.assignee === member);
@@ -1141,7 +1109,7 @@ export default function Home() {
             const cat = getStatusCategory(t.status);
             const statusIndicator = (cat === 'Done') ? '✅' : (cat === 'In Progress') ? '🔄' : '⏱️';
             const epicInfo = t.epic ? ` *(에픽: ${t.epic.key}: ${escapeBrackets(t.epic.summary)})*` : '';
-            weeklyMd += `* ${statusIndicator} [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key)}) (\`${t.status}\`, 업데이트: ${t.updated})${epicInfo}\n`;
+            weeklyMd += `* ${statusIndicator} [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key, url)}) (\`${t.status}\`, 업데이트: ${t.updated})${epicInfo}\n`;
           });
         }
         weeklyMd += `\n`;
@@ -1161,16 +1129,14 @@ export default function Home() {
           const cat = getStatusCategory(t.status);
           const stateSymbol = cat === 'Done' ? '🟢 [완료예정]' : cat === 'In Progress' ? '🔄 [진행예정]' : '⏱️ [할일]';
           const epicInfo = t.epic ? ` *(에픽: ${t.epic.key}: ${escapeBrackets(t.epic.summary)})*` : '';
-          weeklyMd += `* ${stateSymbol} [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key)}) (\`${t.status}\`)${epicInfo}\n`;
+          weeklyMd += `* ${stateSymbol} [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key, url)}) (\`${t.status}\`)${epicInfo}\n`;
         });
         weeklyMd += `\n`;
       });
     }
 
     setWeeklyReportMd(weeklyMd);
-  };
-
-  // --------------------------------------------------------------------------
+  };// --------------------------------------------------------------------------
   // 7. 설정 저장 & 로컬스토리지 동기화 핸들러
   // --------------------------------------------------------------------------
   const handleSaveSettings = () => {
