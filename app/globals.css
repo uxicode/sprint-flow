@@ -1460,6 +1460,20 @@ input:checked+.slider:before {
   margin: 0;
 }
 
+.epic-due-date-badge {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+}
+
 .epic-stats-row {
   display: flex;
   gap: 1rem;

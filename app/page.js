@@ -741,7 +741,7 @@ export default function Home() {
 
     while (pageCount < maxPages) {
       // GET /rest/api/3/search/jql — 커서(nextPageToken) 기반 페이지네이션
-      let targetUrl = `${cleanUrl.replace(/\/$/, '')}/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=key,summary,status,assignee,updated,created,parent&maxResults=${limit}`;
+      let targetUrl = `${cleanUrl.replace(/\/$/, '')}/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=key,summary,status,assignee,updated,created,parent,duedate&maxResults=${limit}`;
       if (nextPageToken) {
         targetUrl += `&nextPageToken=${encodeURIComponent(nextPageToken)}`;
       }
@@ -799,6 +799,7 @@ export default function Home() {
       assignee: issue.fields?.assignee ? (issue.fields.assignee.displayName || issue.fields.assignee.name || '미지정') : '미지정',
       updated: issue.fields?.updated ? issue.fields.updated.substring(0, 10) : '',
       created: issue.fields?.created ? issue.fields.created.substring(0, 10) : '',
+      duedate: issue.fields?.duedate ? issue.fields.duedate : '',
       epic: issue.fields?.parent ? {
         key: issue.fields.parent.key || '',
         summary: issue.fields.parent.fields?.summary || ''
@@ -866,12 +867,19 @@ export default function Home() {
           : (i % dateArray.length);
         const dummyDate = dateArray[dateIndex];
 
+        // 기한을 업데이트일로부터 3~7일 뒤로 설정하여 현실적인 데드라인 제공
+        const updatedDate = new Date(dummyDate);
+        updatedDate.setDate(updatedDate.getDate() + 5);
+        const dummyDuedate = updatedDate.toISOString().split('T')[0];
+
         result.push({
           key: `${projKey}-${keyCounter++}`,
           summary: dummySummary,
           status: dummyStatus,
           assignee: member,
           updated: dummyDate,
+          created: dummyDate,
+          duedate: dummyDuedate,
           epic: dummyEpic
         });
       }
@@ -1201,8 +1209,15 @@ export default function Home() {
         return Math.round((doneCount / group.length) * 100);
       };
 
+      // 에픽 기한 산출 (소속 티켓의 duedate 중 가장 늦은 날짜)
+      const dueDates = epic.tickets.map(t => t.duedate).filter(d => !!d);
+      const epicDueDate = dueDates.length > 0
+        ? dueDates.sort().reverse()[0]
+        : '';
+
       return {
         ...epic,
+        dueDate: epicDueDate,
         beProgress: getProgress(beTickets),
         feProgress: getProgress(feTickets),
         moProgress: getProgress(moTickets),
@@ -2306,6 +2321,7 @@ export default function Home() {
                           <div className="epic-title-group">
                             <span className="epic-badge">{epic.key}</span>
                             <h4 className="epic-summary">{epic.summary}</h4>
+                            {epic.dueDate && <span className="epic-due-date-badge">📅 기한: {epic.dueDate}</span>}
                           </div>
 
                           {/* 진행율 통계 요약 */}
