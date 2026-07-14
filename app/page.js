@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import PerformanceAnalytics from './components/PerformanceAnalytics';
 
 export default function Home() {
@@ -14,12 +14,18 @@ export default function Home() {
   const [confluenceSpace, setConfluenceSpace] = useState('');
   const [confluenceParentId, setConfluenceParentId] = useState('');
   const [calendarId, setCalendarId] = useState('');
-  const [calendarApiKey, setCalendarApiKey] = useState('');
   const [vacationList, setVacationList] = useState([]);
+
+  // Google Calendar OAuth 2.0 상태
+  const [calendarClientId, setCalendarClientId] = useState('');
+  const [calendarClientSecret, setCalendarClientSecret] = useState('');
+  const [calendarAccessToken, setCalendarAccessToken] = useState('');
+  const [calendarRefreshToken, setCalendarRefreshToken] = useState('');
+  const [calendarAuthStatus, setCalendarAuthStatus] = useState('disconnected'); // 'disconnected' | 'connecting' | 'connected' | 'error'
   const [apiMode, setApiMode] = useState(false);
 
   // 팀원 관리 상태
-  const [registeredMembers, setRegisteredMembers] = useState(['홍길동', '김철수', '이영희']);
+  const [registeredMembers, setRegisteredMembers] = useState([]);
   const [newMemberName, setNewMemberName] = useState('');
 
   // 필터 조건 상태
@@ -54,8 +60,64 @@ export default function Home() {
   // --------------------------------------------------------------------------
   // 1. 초기 셋팅 & LocalStorage 로드 (Client-Side Only)
   // --------------------------------------------------------------------------
+  // OAuth 콜백에서 code를 받아 토큰 교환하는 함수
+  const handleOAuthCallback = useCallback(async (code, savedClientId, savedClientSecret) => {
+    try {
+      setCalendarAuthStatus('connecting');
+      const response = await fetch('/api/calendar/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'exchange',
+          code,
+          clientId: savedClientId,
+          clientSecret: savedClientSecret,
+        }),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error || '토큰 교환 실패');
+      }
+
+      const tokenData = await response.json();
+      setCalendarAccessToken(tokenData.access_token);
+      if (tokenData.refresh_token) {
+        setCalendarRefreshToken(tokenData.refresh_token);
+      }
+      setCalendarAuthStatus('connected');
+
+      // 토큰을 localStorage에 저장
+      const oauthData = {
+        clientId: savedClientId,
+        clientSecret: savedClientSecret,
+        accessToken: tokenData.access_token,
+        refreshToken: tokenData.refresh_token || '',
+        expiresAt: Date.now() + (tokenData.expires_in || 3600) * 1000,
+        authMode: 'oauth',
+      };
+      localStorage.setItem('workflow_calendar_oauth', JSON.stringify(oauthData));
+
+      console.log('[Calendar OAuth] 토큰 교환 성공');
+      return tokenData;
+    } catch (err) {
+      console.error('[Calendar OAuth] 토큰 교환 실패:', err);
+      setCalendarAuthStatus('error');
+      alert(`Google Calendar 인증 실패: ${err.message}`);
+      return null;
+    }
+  }, []);
+
   useEffect(() => {
     setMounted(true);
+
+    // YYYY-MM-DD 로컬 타임 포맷팅 헬퍼
+    const toLocalDateStr = (d) => {
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    };
 
     // 날짜 디폴트 계산: 이번 주 월요일 ~ 이번 주 금요일
     const today = new Date();
@@ -69,8 +131,8 @@ export default function Home() {
     const friday = new Date(today);
     friday.setDate(today.getDate() + distanceToFriday);
 
-    const mondayStr = monday.toISOString().split('T')[0];
-    const fridayStr = friday.toISOString().split('T')[0];
+    const mondayStr = toLocalDateStr(monday);
+    const fridayStr = toLocalDateStr(friday);
     setDateStart(mondayStr);
     setDateEnd(fridayStr);
 
@@ -106,29 +168,94 @@ export default function Home() {
     // 1-1-B. 구글 캘린더 설정 복구
     const savedCalendar = localStorage.getItem('workflow_calendar_settings');
     let activeCalendarId = '';
-    let activeCalendarApiKey = '';
     if (savedCalendar) {
       try {
         const parsed = JSON.parse(savedCalendar);
         setCalendarId(parsed.calendarId || '');
-        setCalendarApiKey(parsed.calendarApiKey || '');
         activeCalendarId = parsed.calendarId || '';
-        activeCalendarApiKey = parsed.calendarApiKey || '';
       } catch (e) {
         console.error('캘린더 설정을 복구하는 중 오류 발생:', e);
       }
     }
 
+    // 1-1-C. Google Calendar OAuth 설정 복구
+    const savedOAuth = localStorage.getItem('workflow_calendar_oauth');
+    let activeCalendarClientId = '';
+    let activeCalendarClientSecret = '';
+    let activeCalendarAccessToken = '';
+    let activeCalendarRefreshToken = '';
+    if (savedOAuth) {
+      try {
+        const parsed = JSON.parse(savedOAuth);
+        setCalendarClientId(parsed.clientId || '');
+        setCalendarClientSecret(parsed.clientSecret || '');
+        activeCalendarClientId = parsed.clientId || '';
+        activeCalendarClientSecret = parsed.clientSecret || '';
+        if (parsed.accessToken) {
+          setCalendarAccessToken(parsed.accessToken);
+          activeCalendarAccessToken = parsed.accessToken;
+        }
+        if (parsed.refreshToken) {
+          setCalendarRefreshToken(parsed.refreshToken);
+          activeCalendarRefreshToken = parsed.refreshToken;
+        }
+        // 토큰이 존재하면 연동 완료 상태로
+        if (parsed.accessToken || parsed.refreshToken) {
+          setCalendarAuthStatus('connected');
+        }
+      } catch (e) {
+        console.error('OAuth 캘린더 설정 복구 중 오류:', e);
+      }
+    }
+
+    // 1-1-D. OAuth 콜백 처리 (Google 로그인 후 리디렉트)
+    const urlParams = new URLSearchParams(window.location.search);
+    const calendarAuth = urlParams.get('calendar_auth');
+    const calendarCode = urlParams.get('calendar_code');
+    if (calendarAuth === 'success' && calendarCode) {
+      // URL에서 code 파라미터를 제거 (깨끗한 URL 유지)
+      const cleanUrl = new URL(window.location);
+      cleanUrl.searchParams.delete('calendar_auth');
+      cleanUrl.searchParams.delete('calendar_code');
+      cleanUrl.searchParams.delete('calendar_id');
+      window.history.replaceState({}, '', cleanUrl);
+
+      // 토큰 교환 실행
+      const cId = activeCalendarClientId;
+      const cSecret = activeCalendarClientSecret;
+      if (cId && cSecret) {
+        handleOAuthCallback(calendarCode, cId, cSecret);
+      } else {
+        alert('OAuth Client ID / Secret이 저장되어 있지 않습니다. 먼저 설정을 저장해 주세요.');
+      }
+    } else if (calendarAuth === 'denied') {
+      const cleanUrl = new URL(window.location);
+      cleanUrl.searchParams.delete('calendar_auth');
+      cleanUrl.searchParams.delete('calendar_error');
+      window.history.replaceState({}, '', cleanUrl);
+      alert('Google Calendar 인증이 거부되었습니다.');
+    } else if (calendarAuth === 'error') {
+      const calendarError = urlParams.get('calendar_error');
+      const cleanUrl = new URL(window.location);
+      cleanUrl.searchParams.delete('calendar_auth');
+      cleanUrl.searchParams.delete('calendar_error');
+      window.history.replaceState({}, '', cleanUrl);
+      alert(`Google Calendar 인증 오류: ${calendarError || '알 수 없는 오류'}`);
+    }
+
     // 1-2. 등록된 팀원 목록 복구
     const savedMembers = localStorage.getItem('workflow_registered_members');
+    let activeRegisteredMembers = [];
     if (savedMembers) {
       try {
-        setRegisteredMembers(JSON.parse(savedMembers));
+        const parsed = JSON.parse(savedMembers);
+        setRegisteredMembers(parsed);
+        activeRegisteredMembers = parsed;
       } catch (e) {
         console.error('팀원 목록 복구 중 오류 발생:', e);
       }
     } else {
-      localStorage.setItem('workflow_registered_members', JSON.stringify(['홍길동', '김철수', '이영희']));
+      localStorage.setItem('workflow_registered_members', JSON.stringify([]));
     }
 
     // 1-3. 대상 팀원 필터 설정값 복구
@@ -166,7 +293,11 @@ export default function Home() {
       email: activeEmail,
       token: activeToken,
       calendarId: activeCalendarId,
-      calendarApiKey: activeCalendarApiKey
+      accessToken: activeCalendarAccessToken,
+      refreshToken: activeCalendarRefreshToken,
+      clientId: activeCalendarClientId,
+      clientSecret: activeCalendarClientSecret,
+      registeredMembers: activeRegisteredMembers
     });
   }, []);
 
@@ -367,7 +498,7 @@ export default function Home() {
     targetMembers.forEach((member) => {
       // 멤버 고유 씨드값을 이름 문자 코드로 계산하여 고정된 결정적 티켓 데이터 보장
       const memberSeed = member.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-      
+
       // 조회 기간의 일 수에 따라 티켓 수를 유연하게 설정 (실적 분석 같이 긴 기간이면 20개, 일반 보고서면 3개)
       const isLongRange = dateArray.length > 30;
       const ticketCount = isLongRange ? 20 : 3;
@@ -376,9 +507,9 @@ export default function Home() {
         const dummySummary = dummyTaskPool[(memberSeed + i) % dummyTaskPool.length];
         const dummyStatus = statusOptions[i % statusOptions.length];
         const dummyEpic = dummyEpics[(memberSeed + i) % dummyEpics.length];
-        
+
         // 날짜가 고르게 분포하도록 인덱스 계산
-        const dateIndex = isLongRange 
+        const dateIndex = isLongRange
           ? Math.floor((i * dateArray.length) / ticketCount)
           : (i % dateArray.length);
         const dummyDate = dateArray[dateIndex];
@@ -397,53 +528,145 @@ export default function Home() {
     return result.sort((a, b) => new Date(b.updated) - new Date(a.updated));
   };
 
-  // Google Calendar 연차 로더 및 연차자 판별 헬퍼
-  const fetchCalendarEvents = async (calId, apiKey, start, end) => {
-    if (!calId || !apiKey) return [];
-    
-    // timeMin, timeMax 포맷팅을 사용자의 요구 규격(YYYY-MM-DDThh:mm:ss.000Z)에 맞게 확실하게 변환
+  // Google Calendar 연차 로더 및 연차자 판별 헬퍼 (OAuth 2.0 전용)
+  const fetchCalendarEvents = async (calId, start, end, oauthParams = {}) => {
     const timeMin = `${start}T00:00:00.000Z`;
     const timeMax = `${end}T23:59:59.000Z`;
-    
-    const targetUrl = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events?key=${encodeURIComponent(apiKey)}&timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&singleEvents=true`;
+
+    if (!calId) return [];
+
+    const accessToken = oauthParams.accessToken || calendarAccessToken;
+    const refreshToken = oauthParams.refreshToken || calendarRefreshToken;
+    const clientId = oauthParams.clientId || calendarClientId;
+    const clientSecret = oauthParams.clientSecret || calendarClientSecret;
+
+    if (!accessToken && !refreshToken) {
+      console.warn('[Calendar OAuth] Access Token 또는 Refresh Token이 없습니다.');
+      return [];
+    }
+
     try {
-      const response = await fetch(targetUrl);
+      console.log('[Calendar OAuth] 이벤트 조회 중...');
+      const response = await fetch('/api/calendar/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'events',
+          accessToken,
+          refreshToken,
+          clientId,
+          clientSecret,
+          calendarId: calId,
+          timeMin,
+          timeMax,
+        }),
+      });
+
       if (!response.ok) {
-        console.warn(`Calendar API status: ${response.status}. 캘린더가 비공개 설정되어 있거나 인증 정보가 잘못되었습니다.`);
-        return [];
+        const errData = await response.json();
+        if (errData.needReauth) {
+          console.warn('[Calendar OAuth] 재인증 필요:', errData.error);
+          setCalendarAuthStatus('error');
+          return [];
+        }
+        throw new Error(errData.error || '이벤트 조회 실패');
       }
+
       const data = await response.json();
+
+      // 새 access_token이 발급된 경우 업데이트
+      if (data.newAccessToken) {
+        setCalendarAccessToken(data.newAccessToken);
+        const savedOAuth = localStorage.getItem('workflow_calendar_oauth');
+        if (savedOAuth) {
+          try {
+            const parsed = JSON.parse(savedOAuth);
+            parsed.accessToken = data.newAccessToken;
+            parsed.expiresAt = Date.now() + 3600 * 1000;
+            localStorage.setItem('workflow_calendar_oauth', JSON.stringify(parsed));
+          } catch (e) { /* ignore */ }
+        }
+      }
+
+      console.log(`[Calendar OAuth] ${(data.items || []).length}건 이벤트 로드 완료`);
       return data.items || [];
     } catch (e) {
-      console.error('캘린더 연차 로드 에러:', e);
+      console.error('캘린더 OAuth 연차 로드 에러:', e);
+      alert(`[회사 캘린더 연동 실패]\n\n원인: ${e.message}\n\n이 오류는 Google Cloud Console에서 Google Calendar API가 활성화되어 있지 않기 때문일 수 있습니다. 메시지에 포함된 URL에 방문하여 API를 활성화해 주세요.`);
       return [];
     }
   };
 
-  const getVacationMembers = (events, targetDate, registered) => {
-    if (!events || events.length === 0 || !targetDate) return [];
-    const targetTime = new Date(targetDate).setHours(0,0,0,0);
+  const getVacationMembers = (events, startDate, endDate, registered) => {
+    console.log('[Calendar] getVacationMembers 시작 - 대상 범위:', startDate, '~', endDate, '| 등록 팀원:', registered);
+    if (!events || events.length === 0 || !startDate) {
+      console.log('[Calendar] 이벤트 목록이 비어있거나 날짜가 유효하지 않습니다.');
+      return [];
+    }
+
+    const getLocalDateStr = (dateObj) => {
+      if (!dateObj) return '';
+      if (dateObj.date) return dateObj.date; // YYYY-MM-DD
+      if (dateObj.dateTime) {
+        const d = new Date(dateObj.dateTime);
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        return `${yyyy}-${mm}-${dd}`;
+      }
+      return '';
+    };
+
     const vacations = [];
-    
+    const targetEnd = endDate || startDate;
+
     events.forEach(evt => {
-      const startStr = evt.start?.date || evt.start?.dateTime;
-      const endStr = evt.end?.date || evt.end?.dateTime;
-      if (!startStr) return;
-      
-      const startTime = new Date(startStr).setHours(0,0,0,0);
-      const endTime = new Date(endStr).setHours(0,0,0,0) - (evt.start?.date ? 86400000 : 0);
-      
-      if (targetTime >= startTime && targetTime <= endTime) {
-        const summary = evt.summary || '';
-        const match = summary.match(/^([가-힣a-zA-Z0-9]+?)\s*(연차|휴가|반차|오전반차|오후반차)/);
-        if (match) {
-          const name = match[1];
+      const summary = evt.summary || '';
+      const eventStartDate = getLocalDateStr(evt.start);
+      const eventEndDate = getLocalDateStr(evt.end);
+
+      if (!eventStartDate) return;
+
+      // 기간 중첩(overlap) 여부 확인
+      let isWithinRange = false;
+      if (evt.start?.date) {
+        isWithinRange = eventStartDate <= targetEnd && eventEndDate > startDate;
+      } else {
+        isWithinRange = eventStartDate <= targetEnd && eventEndDate >= startDate;
+      }
+
+      if (isWithinRange) {
+        let name = '';
+        let isVacationEvent = false;
+
+        // 1. 대괄호 접두사 형태 매칭: [연차] 최석호, [오후반반차] 김용권
+        const bracketMatch = summary.match(/^\[([^\]]+)\]\s*([가-힣a-zA-Z0-9\s]+)/);
+        if (bracketMatch) {
+          const type = bracketMatch[1];
+          const keywords = ['연차', '휴가', '반차', '대체휴무', '건강검진', '반반차'];
+          isVacationEvent = keywords.some(k => type.includes(k));
+          if (isVacationEvent) {
+            name = bracketMatch[2].trim();
+          }
+        } else {
+          // 2. 접미사 형태 매칭: 홍길동 연차, 김철수 반차
+          const suffixMatch = summary.match(/^([가-힣a-zA-Z0-9\s]+?)\s*(연차|휴가|반차|대체휴무|건강검진)/);
+          if (suffixMatch) {
+            isVacationEvent = true;
+            name = suffixMatch[1].trim();
+          }
+        }
+
+        if (isVacationEvent && name) {
           if (registered.includes(name) && !vacations.includes(name)) {
             vacations.push(name);
+            console.log(`[Calendar] 연차 매칭 성공: ${name} (${summary})`);
           }
         }
       }
     });
+
+    console.log('[Calendar] 최종 연차자 명단:', vacations);
     return vacations;
   };
 
@@ -509,18 +732,29 @@ export default function Home() {
         setConnectionStatus({ dot: 'success', text: '초기 로드: 실적 분석 데이터 수집 중...' });
         const analyticsData = await fetchJiraTickets(analyticsJql, params.url, params.email, params.token);
 
-        setConnectionStatus({ dot: 'success', text: '초기 로드: 구글 캘린더 연차 데이터 조회 중...' });
+        setConnectionStatus({ dot: 'success', text: '초기 로드: 캘린더 연차 데이터 조회 중...' });
         let calEvents = [];
-        if (params.calendarId && params.calendarApiKey) {
-          calEvents = await fetchCalendarEvents(params.calendarId, params.calendarApiKey, params.start, params.end);
+        if (params.calendarId && (params.accessToken || params.refreshToken)) {
+          calEvents = await fetchCalendarEvents(params.calendarId, params.start, params.end, {
+            accessToken: params.accessToken,
+            refreshToken: params.refreshToken,
+            clientId: params.clientId,
+            clientSecret: params.clientSecret
+          });
+          console.log('[Calendar] calEvents 로드 완료:', calEvents);
+        } else {
+          console.log('[Calendar] 캘린더 조회 스킵 — calendarId:', params.calendarId, '| 토큰 정보 없음');
         }
-        const currentVacationList = getVacationMembers(calEvents, params.start, registeredMembers);
-        setVacationList(currentVacationList);
+        // UI 연차 표시용은 params.start(Monday) ~ params.end(Friday) 전체 범위로 계산
+        const activeRegs = params.registeredMembers || registeredMembers;
+        const currentVacationList = getVacationMembers(calEvents, params.start, params.end, activeRegs);
 
         setTickets(currentData);
         setNextTickets(nextData);
         setAnalyticsTickets(analyticsData);
-        processReportData(currentData, nextData, params.start, params.end, params.projectKey, currentVacationList);
+        // processReportData에는 raw events 배열(calEvents)을 바로 넘김
+        setVacationList(calEvents);
+        processReportData(currentData, nextData, params.start, params.end, params.projectKey, calEvents, activeRegs);
         setConnectionStatus({
           dot: 'success',
           text: `Jira API 연동 완료 (이번 주 ${currentData.length}건 / 다음 주 ${nextData.length}건 / 실적분석 ${analyticsData.length}건 / 연차 ${currentVacationList.length}명)`
@@ -605,18 +839,23 @@ export default function Home() {
         setConnectionStatus({ dot: 'success', text: '실적 분석 데이터 로드 중...' });
         const analyticsData = await fetchJiraTickets(analyticsJql, url, email, token);
 
-        setConnectionStatus({ dot: 'success', text: '구글 캘린더 연차 데이터 조회 중...' });
+        setConnectionStatus({ dot: 'success', text: '캘린더 연차 데이터 조회 중...' });
         let calEvents = [];
-        if (calendarId && calendarApiKey) {
-          calEvents = await fetchCalendarEvents(calendarId, calendarApiKey, start, end);
+        if (calendarId && (calendarAccessToken || calendarRefreshToken)) {
+          calEvents = await fetchCalendarEvents(calendarId, start, end);
+          console.log('[Calendar] calEvents 로드 완료:', calEvents);
+        } else {
+          console.log('[Calendar] 캘린더 조회 스킵 — calendarId:', calendarId, '| 토큰 정보 없음');
         }
-        const currentVacationList = getVacationMembers(calEvents, start, registeredMembers);
-        setVacationList(currentVacationList);
+        // UI 연차 표시용은 start ~ end 전체 범위로 계산
+        const currentVacationList = getVacationMembers(calEvents, start, end, registeredMembers);
 
         setTickets(currentData);
         setNextTickets(nextData);
         setAnalyticsTickets(analyticsData);
-        processReportData(currentData, nextData, start, end, projectKey, currentVacationList);
+        // processReportData에는 raw events 배열(calEvents)을 바로 넘김
+        setVacationList(calEvents);
+        processReportData(currentData, nextData, start, end, projectKey, calEvents, registeredMembers);
         setConnectionStatus({
           dot: 'success',
           text: `Jira API 연동 완료 (이번 주 ${currentData.length}건 / 다음 주 ${nextData.length}건 / 실적분석 ${analyticsData.length}건 / 연차 ${currentVacationList.length}명)`
@@ -635,7 +874,7 @@ export default function Home() {
         const mock = generateMockTickets(projectKey, teamMembers, start, end);
         const nextMock = generateMockTickets(projectKey, teamMembers, nextStart.toISOString().split('T')[0], nextEnd.toISOString().split('T')[0]);
         const analyticsMock = generateMockTickets(analyticsProjectKey, analyticsTeamMembers, analyticsDateStart, analyticsDateEnd);
-        
+
         const currentVacationList = ['이영희']; // 시뮬레이션 고정 연차자
         setVacationList(currentVacationList);
 
@@ -692,7 +931,7 @@ export default function Home() {
   // --------------------------------------------------------------------------
   // 6. 보고서 마크다운 생성기
   // --------------------------------------------------------------------------
-  const processReportData = (currList, nextList, start, end, proj, customVacations = null) => {
+  const processReportData = (currList, nextList, start, end, proj, customVacations = null, activeRegs = null) => {
     const getTicketLink = (key) => {
       const baseDomain = url && url.trim() ? url.trim().replace(/\/$/, '') : 'https://ikoobdoc.atlassian.net';
       return `${baseDomain}/browse/${key}`;
@@ -705,7 +944,103 @@ export default function Home() {
         .replace(/\]/g, ')');
     };
 
-    const activeVacations = customVacations !== null ? customVacations : vacationList;
+    const getLocalDateStr = (dateObj) => {
+      if (!dateObj) return '';
+      if (dateObj.date) return dateObj.date; // YYYY-MM-DD
+      if (dateObj.dateTime) {
+        const d = new Date(dateObj.dateTime);
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        return `${yyyy}-${mm}-${dd}`;
+      }
+      return '';
+    };
+
+    const getMemberVacationDates = (events, member, startRange, endRange) => {
+      if (!Array.isArray(events)) return '';
+      const dateStrings = [];
+      events.forEach(evt => {
+        const summary = evt.summary || '';
+        const eventStartDate = getLocalDateStr(evt.start);
+        const eventEndDate = getLocalDateStr(evt.end);
+        if (!eventStartDate) return;
+
+        let isWithinRange = false;
+        if (evt.start?.date) {
+          isWithinRange = eventStartDate <= endRange && eventEndDate > startRange;
+        } else {
+          isWithinRange = eventStartDate <= endRange && eventEndDate >= startRange;
+        }
+
+        if (isWithinRange) {
+          let name = '';
+          let isVacationEvent = false;
+
+          const bracketMatch = summary.match(/^\[([^\]]+)\]\s*([가-힣a-zA-Z0-9\s]+)/);
+          if (bracketMatch) {
+            const type = bracketMatch[1];
+            const keywords = ['연차', '휴가', '반차', '대체휴무', '건강검진', '반반차', '오후반반차', '오전반반차', '오전반차', '오후반차', '유연근무', '대체휴무'];
+            isVacationEvent = keywords.some(k => type.includes(k));
+            if (isVacationEvent) {
+              name = bracketMatch[2].trim();
+            }
+          } else {
+            const suffixMatch = summary.match(/^([가-힣a-zA-Z0-9\s]+?)\s*(연차|휴가|반차|대체휴무|건강검진|오후반반차|오전반반차|오전반차|오후반차|유연근무|대체휴무)/);
+            if (suffixMatch) {
+              isVacationEvent = true;
+              name = suffixMatch[1].trim();
+            }
+          }
+
+          if (isVacationEvent && name === member) {
+            if (evt.start?.date) {
+              // all-day event (exclusive end date)
+              const d = new Date(evt.end.date);
+              d.setDate(d.getDate() - 1);
+              const formattedEndDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+              if (eventStartDate === formattedEndDate) {
+                dateStrings.push(eventStartDate);
+              } else {
+                dateStrings.push(`${eventStartDate} ~ ${formattedEndDate}`);
+              }
+            } else {
+              if (eventStartDate === eventEndDate) {
+                dateStrings.push(eventStartDate);
+              } else {
+                dateStrings.push(`${eventStartDate} ~ ${eventEndDate}`);
+              }
+            }
+          }
+        }
+      });
+      return dateStrings.join(', ');
+    };
+
+    const rawEvents = customVacations !== null ? customVacations : vacationList;
+    const targetRegs = activeRegs || registeredMembers;
+
+    let activeDailyVacations = [];
+    let activeWeeklyVacations = [];
+
+    // 오늘의 YYYY-MM-DD 구하기
+    const todayObj = new Date();
+    const todayStr = `${todayObj.getFullYear()}-${String(todayObj.getMonth() + 1).padStart(2, '0')}-${String(todayObj.getDate()).padStart(2, '0')}`;
+
+    if (Array.isArray(rawEvents)) {
+      if (rawEvents.length > 0 && typeof rawEvents[0] === 'string') {
+        // Fallback 또는 Mock 데이터 (이름 문자열 배열)
+        activeDailyVacations = rawEvents;
+        activeWeeklyVacations = rawEvents;
+      } else {
+        // 구글 캘린더 raw events 배열인 경우
+        // Daily: 오늘 날짜 기준
+        activeDailyVacations = getVacationMembers(rawEvents, todayStr, todayStr, targetRegs);
+        // Weekly: 주간 검색 범위(start ~ end) 기준
+        activeWeeklyVacations = getVacationMembers(rawEvents, start, end, targetRegs);
+      }
+    }
 
     // 6-1. 일일 업무 보고서 빌드
     let dailyMd = `# 📅 일일 업무 STAND-UP 보고서\n\n`;
@@ -713,11 +1048,16 @@ export default function Home() {
     dailyMd += `> **생성 일시**: ${new Date().toLocaleString('ko-KR')}\n\n`;
 
     const members = [...new Set(currList.map(t => t.assignee))];
-    if (members.length === 0) {
+
+    // 연차자 중 티켓이 없어서 members에 빠진 사람도 보고서에 포함
+    const vacationOnlyMembers = activeDailyVacations.filter(v => !members.includes(v));
+    const allDailyMembers = [...members, ...vacationOnlyMembers];
+
+    if (allDailyMembers.length === 0) {
       dailyMd += `조회 기간 내 진행 중이거나 완료된 티켓이 없습니다.\n`;
     } else {
-      members.forEach(member => {
-        if (activeVacations.includes(member)) {
+      allDailyMembers.forEach(member => {
+        if (activeDailyVacations.includes(member)) {
           dailyMd += `## 👤 담당자: ${member} (🏝️ 당일 연차/휴가)\n\n`;
           dailyMd += `- 🏝️ 금일 연차(휴가) 일정으로 인해 Stand-up 보고 사항이 없습니다.\n\n---\n\n`;
           return;
@@ -768,20 +1108,34 @@ export default function Home() {
     weeklyMd += `### 📈 2. 이번 주 진행 상태 메트릭스\n\n`;
     weeklyMd += `| 티켓 상태 | 건수 | 완료율 / 비율 |\n`;
     weeklyMd += `| :--- | :---: | :---: |\n`;
-    weeklyMd += `| **완료 (Done/Resolved)** | ${completedCount}건 | ${total > 0 ? Math.round((completedCount/total)*100) : 0}% |\n`;
-    weeklyMd += `| **진행 중 (In Progress)** | ${progressingCount}건 | ${total > 0 ? Math.round((progressingCount/total)*100) : 0}% |\n`;
-    weeklyMd += `| **대기 중 (To Do)** | ${todoCount}건 | ${total > 0 ? Math.round((todoCount/total)*100) : 0}% |\n`;
+    weeklyMd += `| **완료 (Done/Resolved)** | ${completedCount}건 | ${total > 0 ? Math.round((completedCount / total) * 100) : 0}% |\n`;
+    weeklyMd += `| **진행 중 (In Progress)** | ${progressingCount}건 | ${total > 0 ? Math.round((progressingCount / total) * 100) : 0}% |\n`;
+    weeklyMd += `| **대기 중 (To Do)** | ${todoCount}건 | ${total > 0 ? Math.round((todoCount / total) * 100) : 0}% |\n`;
     weeklyMd += `| **합계 (Total)** | **${total}건** | **100%** |\n\n`;
 
     weeklyMd += `## 📋 3. 팀원별 상세 업무 진행 현황\n\n`;
-    if (members.length === 0) {
+
+    // 연차자 중 티켓이 없어서 members에 빠진 사람도 주간 보고서에 포함
+    const weeklyVacationOnly = activeWeeklyVacations.filter(v => !members.includes(v));
+    const allWeeklyMembers = [...members, ...weeklyVacationOnly];
+
+    if (allWeeklyMembers.length === 0) {
       weeklyMd += `* 조회 기간 내 상세 티켓 내역이 없습니다.\n`;
     } else {
-      members.forEach(member => {
-        weeklyMd += `### 👤 담당자: ${member}${activeVacations.includes(member) ? ' (🏝️ 연차)' : ''}\n`;
+      allWeeklyMembers.forEach(member => {
+        const isOnVacation = activeWeeklyVacations.includes(member);
+        weeklyMd += `### 👤 담당자: ${member}\n`;
+
+        if (isOnVacation) {
+          const vacDates = getMemberVacationDates(rawEvents, member, start, end);
+          weeklyMd += `* 연차 (${vacDates || '일정 확인 불가'})\n`;
+        }
+
         const memberTickets = currList.filter(t => t.assignee === member);
         if (memberTickets.length === 0) {
-          weeklyMd += `* 진행한 티켓이 없습니다.\n`;
+          if (!isOnVacation) {
+            weeklyMd += `* 진행한 티켓이 없습니다.\n`;
+          }
         } else {
           memberTickets.forEach(t => {
             const cat = getStatusCategory(t.status);
@@ -823,8 +1177,18 @@ export default function Home() {
     const settings = { url, email, token, confluenceSpace, confluenceParentId, apiMode };
     localStorage.setItem('workflow_jira_settings', JSON.stringify(settings));
 
-    const calSettings = { calendarId, calendarApiKey };
+    const calSettings = { calendarId };
     localStorage.setItem('workflow_calendar_settings', JSON.stringify(calSettings));
+
+    // OAuth 설정도 저장
+    const oauthData = {
+      clientId: calendarClientId,
+      clientSecret: calendarClientSecret,
+      accessToken: calendarAccessToken,
+      refreshToken: calendarRefreshToken,
+      expiresAt: Date.now() + 3600 * 1000,
+    };
+    localStorage.setItem('workflow_calendar_oauth', JSON.stringify(oauthData));
 
     alert('설정이 성공적으로 저장되었습니다.');
     if (apiMode) {
@@ -1159,7 +1523,7 @@ export default function Home() {
       <aside className="sidebar">
         <div className="brand">
           <svg className="brand-logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
           <h1>SprintFlow</h1>
           <span className="badge">NEXT.JS</span>
@@ -1219,10 +1583,11 @@ export default function Home() {
           </div>
 
           <div className="setting-group-divider" style={{ borderTop: '1px rgba(255,255,255,0.06) dashed', margin: '1rem 0' }}></div>
-          
-          <h2 style={{ fontSize: '1rem', marginTop: '1rem', color: 'rgba(255,255,255,0.85)' }}>구글 캘린더 설정</h2>
+
+          <h2 style={{ fontSize: '1rem', marginTop: '1rem', color: 'rgba(255,255,255,0.85)' }}>회사 캘린더 설정</h2>
+
           <div className="setting-group">
-            <label htmlFor="calendar-id">Google Calendar ID</label>
+            <label htmlFor="calendar-id">Calendar ID</label>
             <input
               type="text"
               id="calendar-id"
@@ -1231,16 +1596,167 @@ export default function Home() {
               onChange={(e) => setCalendarId(e.target.value)}
             />
           </div>
+
           <div className="setting-group">
-            <label htmlFor="calendar-api-key">Google Calendar API Key</label>
+            <label htmlFor="calendar-client-id">OAuth Client ID</label>
             <input
-              type="password"
-              id="calendar-api-key"
-              placeholder="AIzaSy..."
-              value={calendarApiKey}
-              onChange={(e) => setCalendarApiKey(e.target.value)}
+              type="text"
+              id="calendar-client-id"
+              placeholder="xxxxxxx.apps.googleusercontent.com"
+              value={calendarClientId}
+              onChange={(e) => setCalendarClientId(e.target.value)}
             />
           </div>
+          <div className="setting-group">
+            <label htmlFor="calendar-client-secret">OAuth Client Secret</label>
+            <input
+              type="password"
+              id="calendar-client-secret"
+              placeholder="GOCSPX-..."
+              value={calendarClientSecret}
+              onChange={(e) => setCalendarClientSecret(e.target.value)}
+            />
+          </div>
+
+          {/* 연동 상태 표시 */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            padding: '0.5rem 0.75rem',
+            borderRadius: '0.5rem',
+            backgroundColor: calendarAuthStatus === 'connected'
+              ? 'rgba(34, 197, 94, 0.1)'
+              : calendarAuthStatus === 'error'
+                ? 'rgba(239, 68, 68, 0.1)'
+                : calendarAuthStatus === 'connecting'
+                  ? 'rgba(234, 179, 8, 0.1)'
+                  : 'rgba(255,255,255,0.03)',
+            border: `1px solid ${calendarAuthStatus === 'connected'
+              ? 'rgba(34, 197, 94, 0.3)'
+              : calendarAuthStatus === 'error'
+                ? 'rgba(239, 68, 68, 0.3)'
+                : calendarAuthStatus === 'connecting'
+                  ? 'rgba(234, 179, 8, 0.3)'
+                  : 'rgba(255,255,255,0.06)'
+              }`,
+            marginBottom: '0.5rem',
+          }}>
+            <span style={{
+              width: '8px',
+              height: '8px',
+              borderRadius: '50%',
+              backgroundColor: calendarAuthStatus === 'connected'
+                ? '#22c55e'
+                : calendarAuthStatus === 'error'
+                  ? '#ef4444'
+                  : calendarAuthStatus === 'connecting'
+                    ? '#eab308'
+                    : '#6b7280',
+              flexShrink: 0,
+              animation: calendarAuthStatus === 'connecting' ? 'pulse 1.5s ease-in-out infinite' : 'none',
+            }}></span>
+            <span style={{
+              fontSize: '0.75rem',
+              color: calendarAuthStatus === 'connected'
+                ? '#22c55e'
+                : calendarAuthStatus === 'error'
+                  ? '#ef4444'
+                  : calendarAuthStatus === 'connecting'
+                    ? '#eab308'
+                    : 'rgba(255,255,255,0.5)',
+            }}>
+              {calendarAuthStatus === 'connected' && '🟢 Google 계정 연동 완료'}
+              {calendarAuthStatus === 'connecting' && '⏳ 연동 중...'}
+              {calendarAuthStatus === 'error' && '🔴 연동 실패 — 재인증 필요'}
+              {calendarAuthStatus === 'disconnected' && '⚪ 미연동'}
+            </span>
+          </div>
+
+          {/* Google 계정 연동 버튼 */}
+          <button
+            type="button"
+            className="btn btn-primary"
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '0.5rem',
+              marginBottom: '0.5rem',
+              background: calendarAuthStatus === 'connected'
+                ? 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)'
+                : 'linear-gradient(135deg, #4285f4 0%, #1a73e8 100%)',
+            }}
+            onClick={async () => {
+              if (!calendarClientId.trim()) {
+                alert('OAuth Client ID를 먼저 입력해 주세요.');
+                return;
+              }
+              // 먼저 OAuth 설정을 localStorage에 저장 (콜백에서 복구하기 위해)
+              const oauthData = {
+                clientId: calendarClientId,
+                clientSecret: calendarClientSecret,
+                accessToken: calendarAccessToken,
+                refreshToken: calendarRefreshToken,
+                authMode: 'oauth',
+              };
+              localStorage.setItem('workflow_calendar_oauth', JSON.stringify(oauthData));
+
+              try {
+                setCalendarAuthStatus('connecting');
+                const response = await fetch('/api/calendar/auth', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    clientId: calendarClientId,
+                    calendarId: calendarId,
+                  }),
+                });
+                const data = await response.json();
+                if (data.authUrl) {
+                  window.location.href = data.authUrl;
+                } else {
+                  throw new Error('인증 URL을 생성하지 못했습니다.');
+                }
+              } catch (err) {
+                console.error('OAuth 시작 실패:', err);
+                setCalendarAuthStatus('error');
+                alert(`OAuth 시작 실패: ${err.message}`);
+              }
+            }}
+            disabled={calendarAuthStatus === 'connecting'}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+              <polyline points="10 17 15 12 10 7" />
+              <line x1="15" y1="12" x2="3" y2="12" />
+            </svg>
+            {calendarAuthStatus === 'connected' ? 'Google 계정 재연동' : 'Google 계정 연동'}
+          </button>
+          {calendarAuthStatus === 'connected' && (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              style={{ width: '100%', fontSize: '0.75rem', marginBottom: '0.5rem' }}
+              onClick={() => {
+                setCalendarAccessToken('');
+                setCalendarRefreshToken('');
+                setCalendarAuthStatus('disconnected');
+                const savedOAuth = localStorage.getItem('workflow_calendar_oauth');
+                if (savedOAuth) {
+                  try {
+                    const parsed = JSON.parse(savedOAuth);
+                    parsed.accessToken = '';
+                    parsed.refreshToken = '';
+                    localStorage.setItem('workflow_calendar_oauth', JSON.stringify(parsed));
+                  } catch (e) { /* ignore */ }
+                }
+              }}
+            >
+              연동 해제
+            </button>
+          )}
 
           <div className="mode-switch-container">
             <span className="mode-label">API 모드 활성화</span>
@@ -1311,21 +1827,21 @@ export default function Home() {
         {/* 필터 설정 섹션 */}
         {/* 필터 설정 섹션 */}
         <section className="filter-section card">
-          <div 
-            className="section-header" 
+          <div
+            className="section-header"
             onClick={() => setIsFilterOpen(!isFilterOpen)}
-            style={{ 
-              display: 'flex', 
-              justifyContent: 'space-between', 
-              alignItems: 'center', 
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
               cursor: 'pointer',
               userSelect: 'none',
               marginBottom: '1rem'
             }}
           >
             <h3 style={{ margin: 0 }}>티켓 필터 조건 설정</h3>
-            <button 
-              type="button" 
+            <button
+              type="button"
               className="btn-toggle-filter"
               style={{
                 background: 'none',
@@ -1344,7 +1860,7 @@ export default function Home() {
               </svg>
             </button>
           </div>
-          
+
           <div
             className="filter-slide-container"
             style={{
@@ -1413,7 +1929,7 @@ export default function Home() {
               <div className="form-actions">
                 <button type="submit" disabled={isLoading} className="btn btn-primary">
                   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" className="btn-icon">
-                    <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" strokeLinecap="round" strokeLinejoin="round"/>
+                    <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                   {isLoading ? '불러오는 중...' : '티켓 가져오기'}
                 </button>
@@ -1442,7 +1958,7 @@ export default function Home() {
                     justifyContent: 'center'
                   }}
                 >
-                  <div 
+                  <div
                     className="pie-center-hole"
                     style={{
                       width: '64%',
@@ -1526,15 +2042,15 @@ export default function Home() {
               >
                 주간 업무 보고서
               </button>
-              <button 
-                type="button" 
+              <button
+                type="button"
                 className={`tab-btn ${activeTab === 'tab-analytics' ? 'active' : ''}`}
                 onClick={() => setActiveTab('tab-analytics')}
               >
                 📊 실적 분석
               </button>
-              <button 
-                type="button" 
+              <button
+                type="button"
                 className={`tab-btn ${activeTab === 'tab-raw' ? 'active' : ''}`}
                 onClick={() => setActiveTab('tab-raw')}
               >
@@ -1544,20 +2060,20 @@ export default function Home() {
             <div className="tab-actions">
               <button type="button" onClick={handleCopyReport} className="btn btn-secondary btn-sm">
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" className="btn-icon">
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                  <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                  <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
                 </svg>
                 마크다운 복사
               </button>
               <button type="button" onClick={handleDownloadReport} className="btn btn-primary btn-sm">
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" className="btn-icon">
-                  <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
                 다운로드 (.md)
               </button>
               <button type="button" onClick={handlePublishConfluence} className="btn btn-confluence btn-sm">
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" className="btn-icon">
-                  <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
                 컨플루언스 등록
               </button>
@@ -1587,8 +2103,8 @@ export default function Home() {
 
             {/* 실적 분석 탭 */}
             <div className={`tab-content ${activeTab === 'tab-analytics' ? 'active' : ''}`}>
-              <PerformanceAnalytics 
-                tickets={analyticsTickets} 
+              <PerformanceAnalytics
+                tickets={analyticsTickets}
                 projectKey={analyticsProjectKey}
                 setProjectKey={setAnalyticsProjectKey}
                 teamMembers={analyticsTeamMembers}
