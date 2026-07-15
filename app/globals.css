@@ -1661,3 +1661,273 @@ input:checked+.slider:before {
   color: var(--text-muted);
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
+
+/* ==========================================================================
+   Analytics Dashboard & Gantt Chart Timeline (Option 2 & 3)
+   ========================================================================== */
+
+/* 요약 메트릭 카드 */
+.analytics-summary-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.summary-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.3s ease, box-shadow 0.3s ease;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.summary-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(0, 242, 254, 0.3);
+  box-shadow: 0 8px 30px rgba(0, 242, 254, 0.12);
+}
+
+.summary-card .card-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.summary-card .card-info .label {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.75px;
+  font-weight: 600;
+}
+
+.summary-card .card-info .value {
+  color: var(--text-primary);
+  font-size: 1.85rem;
+  font-weight: 700;
+  margin-top: 0.25rem;
+  font-family: var(--font-logo);
+  line-height: 1.2;
+}
+
+.summary-card .card-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.summary-card.accent .card-icon {
+  color: var(--color-accent);
+  background: rgba(0, 242, 254, 0.08);
+  border-color: rgba(0, 242, 254, 0.15);
+}
+
+.summary-card.success .card-icon {
+  color: var(--color-success);
+  background: rgba(0, 255, 135, 0.08);
+  border-color: rgba(0, 255, 135, 0.15);
+}
+
+.summary-card.warning .card-icon {
+  color: var(--color-warning);
+  background: rgba(246, 211, 101, 0.08);
+  border-color: rgba(246, 211, 101, 0.15);
+}
+
+/* 간트 차트 컨테이너 */
+.gantt-chart-container {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  display: flex;
+  flex-direction: column;
+}
+
+.gantt-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-bottom: 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text-primary);
+}
+
+.gantt-timeline-wrapper {
+  position: relative;
+  overflow-x: auto;
+  padding-bottom: 0.5rem;
+}
+
+.gantt-chart {
+  min-width: 750px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 간트 차트 날짜 눈금선 */
+.gantt-grid-overlay {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 220px;
+  right: 0;
+  display: flex;
+  justify-content: space-between;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.gantt-grid-line {
+  width: 1px;
+  height: 100%;
+  border-left: 1px dashed rgba(255, 255, 255, 0.05);
+}
+
+/* 간트 헤더 */
+.gantt-header {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 0.75rem;
+  margin-bottom: 0.5rem;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  position: relative;
+  z-index: 2;
+}
+
+.gantt-header-label {
+  width: 220px;
+  flex-shrink: 0;
+}
+
+.gantt-header-dates {
+  flex-grow: 1;
+  display: flex;
+  justify-content: space-between;
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+}
+
+.gantt-date-marker {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+/* 간트 로우 */
+.gantt-row {
+  display: flex;
+  align-items: center;
+  min-height: 52px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  position: relative;
+  z-index: 2;
+}
+
+.gantt-row:hover {
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.gantt-epic-label {
+  width: 220px;
+  flex-shrink: 0;
+  padding-right: 1.5rem;
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.gantt-epic-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.gantt-epic-info .epic-key {
+  font-size: 0.65rem;
+  color: var(--color-accent);
+  background: rgba(0, 242, 254, 0.08);
+  padding: 1px 5px;
+  border-radius: 3px;
+  width: fit-content;
+  font-weight: 700;
+  border: 1px solid rgba(0, 242, 254, 0.15);
+}
+
+.gantt-epic-info .epic-name {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-primary);
+  transition: color 0.2s ease;
+}
+
+.gantt-epic-info:hover .epic-name {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
+.gantt-lane {
+  flex-grow: 1;
+  position: relative;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+}
+
+/* 간트 일정 막대 */
+.gantt-epic-bar {
+  height: 22px;
+  border-radius: var(--radius-sm);
+  position: relative;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+  cursor: pointer;
+}
+
+.gantt-epic-bar:hover {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 12px rgba(0, 242, 254, 0.25), inset 0 1px 3px rgba(0, 0, 0, 0.3);
+  transform: scaleY(1.05);
+}
+
+.gantt-epic-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, rgba(79, 70, 229, 0.75), rgba(6, 182, 212, 0.85));
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  padding-left: 0.5rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  transition: width 0.3s ease;
+}

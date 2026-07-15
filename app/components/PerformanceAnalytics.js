@@ -73,6 +73,23 @@ export default function PerformanceAnalytics({
     return predictNextMonth(activeTickets);
   }, [activeTickets]);
 
+  const summaryStats = useMemo(() => {
+    if (!activeTickets || activeTickets.length === 0) {
+      return { total: 0, completed: 0, inProgress: 0, completionRate: 0 };
+    }
+    const total = activeTickets.length;
+    const completed = activeTickets.filter(t => {
+      const st = (t.status || '').toLowerCase();
+      return st.includes('done') || st.includes('resolved') || st.includes('완료') || st.includes('closed') || st.includes('성공');
+    }).length;
+    const inProgress = activeTickets.filter(t => {
+      const st = (t.status || '').toLowerCase();
+      return st.includes('progress') || st.includes('진행') || st.includes('doing') || st.includes('개발') || st.includes('selected') || st.includes('working');
+    }).length;
+    const completionRate = total > 0 ? Math.round((completed / total) * 100) : 0;
+    return { total, completed, inProgress, completionRate };
+  }, [activeTickets]);
+
   // 원본 티켓 기준으로 MVP 및 고WIP 담당자 식별 (체크박스 목록 렌더링용)
   const { mvpMember, wipMembers } = useMemo(() => {
     if (!tickets || tickets.length === 0) return { mvpMember: null, wipMembers: [] };
@@ -271,6 +288,56 @@ export default function PerformanceAnalytics({
         </div>
       ) : (
         <>
+          {/* 요약 메트릭 카드 */}
+          <div className="analytics-summary-cards">
+            <div className="summary-card">
+              <div className="card-info">
+                <span className="label">전체 수집 티켓</span>
+                <span className="value">{summaryStats.total}건</span>
+              </div>
+              <div className="card-icon">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                </svg>
+              </div>
+            </div>
+            <div className="summary-card success">
+              <div className="card-info">
+                <span className="label">완료한 티켓</span>
+                <span className="value">{summaryStats.completed}건</span>
+              </div>
+              <div className="card-icon">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+              </div>
+            </div>
+            <div className="summary-card accent">
+              <div className="card-info">
+                <span className="label">진행 중인 업무</span>
+                <span className="value">{summaryStats.inProgress}건</span>
+              </div>
+              <div className="card-icon">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
+                </svg>
+              </div>
+            </div>
+            <div className="summary-card warning">
+              <div className="card-info">
+                <span className="label">팀 전체 완료율</span>
+                <span className="value">{summaryStats.completionRate}%</span>
+              </div>
+              <div className="card-icon">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="20" x2="18" y2="10"></line>
+                  <line x1="12" y1="20" x2="12" y2="4"></line>
+                  <line x1="6" y1="20" x2="6" y2="14"></line>
+                </svg>
+              </div>
+            </div>
+          </div>
+
           {/* 다운로드 버튼 */}
           <div className="analytics-actions">
             <button onClick={handleDownloadMonthlyReport} className="btn btn-secondary btn-sm">
@@ -382,6 +449,25 @@ export default function PerformanceAnalytics({
                         contentStyle={{ backgroundColor: '#1a1a2e', border: '1px solid #333', borderRadius: '8px' }}
                       />
                     </PieChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* 담당자별 티켓 상태 누적 비교 (Stacked Bar Chart) */}
+                <div className="chart-section card" style={{ gridColumn: 'span 2' }}>
+                  <h4>담당자별 티켓 상태 누적 비교</h4>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={analysis.summary}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                      <XAxis dataKey="assignee" stroke="#888" />
+                      <YAxis stroke="#888" />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: '#1a1a2e', border: '1px solid #333', borderRadius: '8px' }}
+                      />
+                      <Legend />
+                      <Bar dataKey="completed" name="완료 (Done)" fill="#10b981" stackId="a" />
+                      <Bar dataKey="inProgress" name="진행 중 (In Progress)" fill="#3b82f6" stackId="a" />
+                      <Bar dataKey="todo" name="대기 중 (To Do)" fill="#f59e0b" stackId="a" />
+                    </BarChart>
                   </ResponsiveContainer>
                 </div>
               </div>

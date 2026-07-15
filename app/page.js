@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import dayjs from 'dayjs';
 import PerformanceAnalytics from './components/PerformanceAnalytics';
 import {
@@ -880,6 +880,46 @@ export default function Home() {
       return a.key.localeCompare(b.key);
     });
   };
+
+  // 간트 차트 데이터 처리
+  const ganttData = useMemo(() => {
+    const epics = getEpicScheduleData();
+    if (epics.length === 0) return { epics: [], globalStart: null, globalEnd: null, totalDays: 0, dateMarkers: [] };
+
+    // Filter epics that have valid start and end dates and are not hotfixes
+    const validEpics = epics.filter(e => {
+      if (!e.startDate || !e.endDate) return false;
+      const summary = (e.summary || '').toLowerCase();
+      const key = (e.key || '').toLowerCase();
+      return !summary.includes('hotfix') && !summary.includes('핫픽스') && !key.includes('hotfix');
+    });
+    if (validEpics.length === 0) return { epics: [], globalStart: null, globalEnd: null, totalDays: 0, dateMarkers: [] };
+
+    // Find overall start and end date
+    const startValues = validEpics.map(e => dayjs(e.startDate).valueOf());
+    const endValues = validEpics.map(e => dayjs(e.endDate).valueOf());
+    
+    // pad start and end by a few days for visual margins
+    const minStart = dayjs(Math.min(...startValues)).subtract(2, 'day');
+    const maxEnd = dayjs(Math.max(...endValues)).add(2, 'day');
+    const totalDays = maxEnd.diff(minStart, 'day') + 1;
+
+    // Create 5 date markers for grid columns
+    const dateMarkers = [];
+    const step = Math.max(1, Math.floor(totalDays / 4));
+    for (let i = 0; i < 5; i++) {
+      const d = minStart.add(i * step, 'day');
+      dateMarkers.push(d.format('MM.DD'));
+    }
+
+    return {
+      epics: validEpics,
+      globalStart: minStart,
+      globalEnd: maxEnd,
+      totalDays,
+      dateMarkers
+    };
+  }, [scheduleTickets]);
 
   // 실적 분석 기간 단독 조회 핸들러
   const handleFetchAnalyticsTickets = async (start, end) => {
@@ -2239,6 +2279,84 @@ export default function Home() {
                   <h3>🗓️ 에픽별 프로젝트 개발 일정 및 진행 상황</h3>
                   <p className="subtitle">각 에픽 하위 티켓의 제목 태그([BE], [FE], [MO]) 기준 진행율 통계</p>
                 </div>
+
+                {/* 간트 차트 타임라인 */}
+                {ganttData.epics.length > 0 && (
+                  <div className="gantt-chart-container">
+                    <h4 className="gantt-title">
+                      📅 에픽 일정 타임라인 (간트 차트)
+                    </h4>
+                    <div className="gantt-timeline-wrapper">
+                      <div className="gantt-chart">
+                        {/* 그리드 눈금 배경 */}
+                        <div className="gantt-grid-overlay">
+                          <div className="gantt-grid-line"></div>
+                          <div className="gantt-grid-line"></div>
+                          <div className="gantt-grid-line"></div>
+                          <div className="gantt-grid-line"></div>
+                          <div className="gantt-grid-line"></div>
+                        </div>
+
+                        {/* 간트 헤더 (날짜 눈금) */}
+                        <div className="gantt-header">
+                          <div className="gantt-header-label">에픽 이름</div>
+                          <div className="gantt-header-dates">
+                            {ganttData.dateMarkers.map((marker, idx) => (
+                              <span key={idx} className="gantt-date-marker">{marker}</span>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* 간트 행 목록 */}
+                        {ganttData.epics.map(epic => {
+                          const startDiff = dayjs(epic.startDate).diff(ganttData.globalStart, 'day');
+                          const duration = dayjs(epic.endDate).diff(epic.startDate, 'day') + 1;
+                          
+                          const leftPercent = (startDiff / ganttData.totalDays) * 100;
+                          const widthPercent = Math.max(3, (duration / ganttData.totalDays) * 100);
+
+                          // 에픽의 평균 진행률 계산
+                          const progressValues = [epic.beProgress, epic.feProgress, epic.moProgress].filter(v => v !== null);
+                          const avgProgress = progressValues.length > 0
+                            ? Math.round(progressValues.reduce((a, b) => a + b, 0) / progressValues.length)
+                            : 0;
+
+                          return (
+                            <div key={epic.key} className="gantt-row">
+                              <div className="gantt-epic-label">
+                                <div className="gantt-epic-info" onClick={() => toggleEpicCollapse(epic.key)}>
+                                  <span className="epic-key">{epic.key}</span>
+                                  <span className="epic-name" title={epic.summary}>{epic.summary}</span>
+                                </div>
+                              </div>
+                              <div className="gantt-lane">
+                                <div
+                                  className="gantt-epic-bar"
+                                  style={{
+                                    left: `${leftPercent}%`,
+                                    width: `${widthPercent}%`,
+                                    position: 'absolute'
+                                  }}
+                                  onClick={() => toggleEpicCollapse(epic.key)}
+                                  title={`${epic.summary}\n기간: ${epic.startDate} ~ ${epic.endDate}\n진행률: ${avgProgress}%`}
+                                >
+                                  <div
+                                    className="gantt-epic-bar-fill"
+                                    style={{
+                                      width: `${avgProgress}%`
+                                    }}
+                                  >
+                                    {avgProgress > 10 && `${avgProgress}%`}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 <div className="epic-cards-grid">
                   {getEpicScheduleData().length === 0 ? (
