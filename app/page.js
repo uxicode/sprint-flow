@@ -200,10 +200,15 @@ class JqlQueryBuilder {
     }
     // 하위 작업(Sub-task) 제외
     jql += ' AND issuetype not in subTaskIssueTypes()';
-    if (this.startDate) {
+    if (this.startDate && this.endDate) {
+      if (this.dateField === 'updated') {
+        jql += ` AND ((updated >= "${this.startDate}" AND updated <= "${this.endDate} 23:59") OR (duedate >= "${this.startDate}" AND duedate <= "${this.endDate}"))`;
+      } else {
+        jql += ` AND ${this.dateField} >= "${this.startDate}" AND ${this.dateField} <= "${this.endDate} 23:59"`;
+      }
+    } else if (this.startDate) {
       jql += ` AND ${this.dateField} >= "${this.startDate}"`;
-    }
-    if (this.endDate) {
+    } else if (this.endDate) {
       jql += ` AND ${this.dateField} <= "${this.endDate} 23:59"`;
     }
     jql += ` ORDER BY ${this.orderByField} ${this.orderDirection}`;
@@ -461,6 +466,8 @@ export default function Home() {
   const [dateEnd, setDateEnd] = useState('');
   const [isFilterOpen, setIsFilterOpen] = useState(true);
   const [isStatsJqlOpen, setIsStatsJqlOpen] = useState(true);
+  const [isAnalyticsLoaded, setIsAnalyticsLoaded] = useState(false);
+  const [isScheduleLoaded, setIsScheduleLoaded] = useState(false);
   const [expandedEpics, setExpandedEpics] = useState({});
 
   const toggleEpicCollapse = (epicKey) => {
@@ -1027,11 +1034,7 @@ export default function Home() {
   // --------------------------------------------------------------------------
   const triggerInitialFetch = async (params) => {
     setIsLoading(true);
-    setIsAnalyticsLoading(true);
-
-    const thisYear = dayjs().year();
-    const startOfYear = `${thisYear}-01-01`;
-    const endOfYear = `${thisYear}-12-31`;
+    setIsAnalyticsLoading(false);
 
     if (params.apiMode) {
       const proj = params.projectKey.trim() || 'PROJ';
@@ -1052,25 +1055,12 @@ export default function Home() {
         .setDateRange(nextStartStr, nextEndStr, 'updated')
         .build();
 
-      const analyticsJql = new JqlQueryBuilder()
-        .setProject(proj)
-        .setAssignees(params.teamMembers)
-        .setDateRange(startOfYear, endOfYear, 'updated')
-        .build();
-
       try {
         setConnectionStatus({ dot: 'success', text: '초기 로드: 이번 주 데이터 수집 중...' });
         const currentData = await fetchJiraTickets(jql, params.url, params.email, params.token);
 
         setConnectionStatus({ dot: 'success', text: '초기 로드: 다음 주 계획 수집 중...' });
         const nextData = await fetchJiraTickets(nextJql, params.url, params.email, params.token);
-
-        setConnectionStatus({ dot: 'success', text: '초기 로드: 실적 분석 데이터 수집 중...' });
-        const analyticsData = await fetchJiraTickets(analyticsJql, params.url, params.email, params.token);
-
-        setConnectionStatus({ dot: 'success', text: '초기 로드: 전체 일정 데이터 수집 중...' });
-        const scheduleJql = getScheduleJql(params.projectKey, params.teamMembers);
-        const scheduleData = await fetchJiraTickets(scheduleJql, params.url, params.email, params.token);
 
         setConnectionStatus({ dot: 'success', text: '초기 로드: 캘린더 연차 데이터 조회 중...' });
         let calEvents = [];
@@ -1091,15 +1081,16 @@ export default function Home() {
 
         setTickets(currentData);
         setNextTickets(nextData);
-        setAnalyticsTickets(analyticsData);
-        setScheduleTickets(scheduleData);
-        setScheduleTickets(scheduleData);
+        setAnalyticsTickets([]);
+        setScheduleTickets([]);
+        setIsAnalyticsLoaded(false);
+        setIsScheduleLoaded(false);
         // processReportData에는 raw events 배열(calEvents)을 바로 넘김
         setVacationList(calEvents);
         processReportData(currentData, nextData, params.start, params.end, params.projectKey, calEvents, activeRegs);
         setConnectionStatus({
           dot: 'success',
-          text: `Jira API 연동 완료 (이번 주 ${currentData.length}건 / 다음 주 ${nextData.length}건 / 실적분석 ${analyticsData.length}건 / 연차 ${currentVacationList.length}명)`
+          text: `Jira API 연동 완료 (이번 주 ${currentData.length}건 / 다음 주 ${nextData.length}건 / 연차 ${currentVacationList.length}명)`
         });
       } catch (err) {
         console.error('초기 로딩 지라 API 에러:', err);
@@ -1108,18 +1099,17 @@ export default function Home() {
         // 폴백으로 Mock 데이터 제공 (이영희를 임시 연차자로 지정)
         const mock = generateMockTickets(params.projectKey, params.teamMembers, params.start, params.end);
         const nextMock = generateMockTickets(params.projectKey, params.teamMembers, nextStartStr, nextEndStr);
-        const analyticsMock = generateMockTickets(params.projectKey, params.teamMembers, startOfYear, endOfYear);
-        const scheduleMock = generateMockTickets(params.projectKey, params.teamMembers, startOfYear, endOfYear);
         const currentVacationList = ['이영희'];
         setVacationList(currentVacationList);
         setTickets(mock);
         setNextTickets(nextMock);
-        setAnalyticsTickets(analyticsMock);
-        setScheduleTickets(scheduleMock);
+        setAnalyticsTickets([]);
+        setScheduleTickets([]);
+        setIsAnalyticsLoaded(false);
+        setIsScheduleLoaded(false);
         processReportData(mock, nextMock, params.start, params.end, params.projectKey, currentVacationList);
       } finally {
         setIsLoading(false);
-        setIsAnalyticsLoading(false);
       }
     } else {
       setTimeout(() => {
@@ -1128,19 +1118,18 @@ export default function Home() {
         const nextStartStr = dayjs(params.start).add(7, 'day').format('YYYY-MM-DD');
         const nextEndStr = dayjs(params.end).add(7, 'day').format('YYYY-MM-DD');
         const nextMock = generateMockTickets(params.projectKey, params.teamMembers, nextStartStr, nextEndStr);
-        const analyticsMock = generateMockTickets(params.projectKey, params.teamMembers, startOfYear, endOfYear);
-        const scheduleMock = generateMockTickets(params.projectKey, params.teamMembers, startOfYear, endOfYear);
 
         const currentVacationList = ['이영희']; // 시뮬레이터 기본 연차자 설정
         setVacationList(currentVacationList);
 
         setTickets(mock);
         setNextTickets(nextMock);
-        setAnalyticsTickets(analyticsMock);
-        setScheduleTickets(scheduleMock);
+        setAnalyticsTickets([]);
+        setScheduleTickets([]);
+        setIsAnalyticsLoaded(false);
+        setIsScheduleLoaded(false);
         processReportData(mock, nextMock, params.start, params.end, params.projectKey, currentVacationList);
         setIsLoading(false);
-        setIsAnalyticsLoading(false);
       }, 400);
     }
   };
@@ -1148,7 +1137,7 @@ export default function Home() {
   const handleFetchTickets = async (e) => {
     if (e) e.preventDefault();
     setIsLoading(true);
-    setIsAnalyticsLoading(true);
+    setIsAnalyticsLoading(false);
 
     const start = dateStart;
     const end = dateEnd;
@@ -1158,13 +1147,6 @@ export default function Home() {
     const jql = getJql();
     const nextJql = getNextWeekJql();
 
-    // 실적 분석 JQL 빌드 (실적 분석 전용 프로젝트/팀원 사용)
-    const analyticsJql = new JqlQueryBuilder()
-      .setProject(analyticsProjectKey)
-      .setAssignees(analyticsTeamMembers)
-      .setDateRange(analyticsDateStart, analyticsDateEnd, 'created')
-      .build();
-
     if (apiMode) {
       try {
         setConnectionStatus({ dot: 'success', text: '이번 주 데이터 로드 중...' });
@@ -1172,13 +1154,6 @@ export default function Home() {
 
         setConnectionStatus({ dot: 'success', text: '다음 주 계획 데이터 로드 중...' });
         const nextData = await fetchJiraTickets(nextJql, url, email, token);
-
-        setConnectionStatus({ dot: 'success', text: '실적 분석 데이터 로드 중...' });
-        const analyticsData = await fetchJiraTickets(analyticsJql, url, email, token);
-
-        setConnectionStatus({ dot: 'success', text: '전체 일정 데이터 로드 중...' });
-        const scheduleJql = getScheduleJql();
-        const scheduleData = await fetchJiraTickets(scheduleJql, url, email, token);
 
         setConnectionStatus({ dot: 'success', text: '캘린더 연차 데이터 조회 중...' });
         let calEvents = [];
@@ -1193,13 +1168,16 @@ export default function Home() {
 
         setTickets(currentData);
         setNextTickets(nextData);
-        setAnalyticsTickets(analyticsData);
+        setAnalyticsTickets([]);
+        setScheduleTickets([]);
+        setIsAnalyticsLoaded(false);
+        setIsScheduleLoaded(false);
         // processReportData에는 raw events 배열(calEvents)을 바로 넘김
         setVacationList(calEvents);
         processReportData(currentData, nextData, start, end, projectKey, calEvents, registeredMembers);
         setConnectionStatus({
           dot: 'success',
-          text: `Jira API 연동 완료 (이번 주 ${currentData.length}건 / 다음 주 ${nextData.length}건 / 실적분석 ${analyticsData.length}건 / 연차 ${currentVacationList.length}명)`
+          text: `Jira API 연동 완료 (이번 주 ${currentData.length}건 / 다음 주 ${nextData.length}건 / 연차 ${currentVacationList.length}명)`
         });
       } catch (err) {
         console.error('Jira API 연동 에러:', err);
@@ -1207,27 +1185,24 @@ export default function Home() {
         setConnectionStatus({ dot: 'danger', text: `연동 실패 (${err.message})` });
       } finally {
         setIsLoading(false);
-        setIsAnalyticsLoading(false);
       }
     } else {
       // 시뮬레이터 동작
       setTimeout(() => {
         const mock = generateMockTickets(projectKey, teamMembers, start, end);
         const nextMock = generateMockTickets(projectKey, teamMembers, nextStartStr, nextEndStr);
-        const analyticsMock = generateMockTickets(analyticsProjectKey, analyticsTeamMembers, analyticsDateStart, analyticsDateEnd);
-        const thisYear = dayjs().year();
-        const scheduleMock = generateMockTickets(projectKey, teamMembers, `${thisYear}-01-01`, `${thisYear}-12-31`);
 
         const currentVacationList = ['이영희']; // 시뮬레이션 고정 연차자
         setVacationList(currentVacationList);
 
         setTickets(mock);
         setNextTickets(nextMock);
-        setAnalyticsTickets(analyticsMock);
-        setScheduleTickets(scheduleMock);
+        setAnalyticsTickets([]);
+        setScheduleTickets([]);
+        setIsAnalyticsLoaded(false);
+        setIsScheduleLoaded(false);
         processReportData(mock, nextMock, start, end, projectKey, currentVacationList);
         setIsLoading(false);
-        setIsAnalyticsLoading(false);
       }, 500);
     }
   };
@@ -1351,6 +1326,84 @@ export default function Home() {
         setAnalyticsTickets(mock);
         setIsAnalyticsLoading(false);
       }, 500);
+    }
+  };
+
+  const lazyLoadAnalyticsTickets = async () => {
+    if (isAnalyticsLoaded) return;
+    setIsAnalyticsLoading(true);
+    if (apiMode) {
+      try {
+        const start = analyticsDateStart;
+        const end = analyticsDateEnd;
+        const jql = new JqlQueryBuilder()
+          .setProject(analyticsProjectKey)
+          .setAssignees(analyticsTeamMembers)
+          .setDateRange(start, end, 'created')
+          .build();
+        setConnectionStatus({ dot: 'success', text: '실적 분석 데이터 로드 중...' });
+        const analyticsData = await fetchJiraTickets(jql, url, email, token);
+        setAnalyticsTickets(analyticsData);
+        setIsAnalyticsLoaded(true);
+        setConnectionStatus({
+          dot: 'success',
+          text: `실적 분석 데이터 수집 완료 (${analyticsData.length}건)`
+        });
+      } catch (err) {
+        console.error('실적 분석 지라 API 에러:', err);
+        alert(`[실적 분석 지라 API 에러]\n\n오류 내용: ${err.message}`);
+        setConnectionStatus({ dot: 'danger', text: `실적 분석 연동 실패 (${err.message})` });
+      } finally {
+        setIsAnalyticsLoading(false);
+      }
+    } else {
+      setTimeout(() => {
+        const mock = generateMockTickets(analyticsProjectKey, analyticsTeamMembers, analyticsDateStart, analyticsDateEnd);
+        setAnalyticsTickets(mock);
+        setIsAnalyticsLoaded(true);
+        setIsAnalyticsLoading(false);
+      }, 500);
+    }
+  };
+
+  const lazyLoadScheduleTickets = async () => {
+    if (isScheduleLoaded) return;
+    setIsLoading(true);
+    if (apiMode) {
+      try {
+        setConnectionStatus({ dot: 'success', text: '전체 일정 데이터 로드 중...' });
+        const scheduleJql = getScheduleJql();
+        const scheduleData = await fetchJiraTickets(scheduleJql, url, email, token);
+        setScheduleTickets(scheduleData);
+        setIsScheduleLoaded(true);
+        setConnectionStatus({
+          dot: 'success',
+          text: `전체 일정 데이터 수집 완료 (${scheduleData.length}건)`
+        });
+      } catch (err) {
+        console.error('전체 일정 지라 API 에러:', err);
+        alert(`[전체 일정 지라 API 에러]\n\n오류 내용: ${err.message}`);
+        setConnectionStatus({ dot: 'danger', text: `전체 일정 연동 실패 (${err.message})` });
+      } finally {
+        setIsLoading(false);
+      }
+    } else {
+      setTimeout(() => {
+        const thisYear = dayjs().year();
+        const scheduleMock = generateMockTickets(projectKey, teamMembers, `${thisYear}-01-01`, `${thisYear}-12-31`);
+        setScheduleTickets(scheduleMock);
+        setIsScheduleLoaded(true);
+        setIsLoading(false);
+      }, 500);
+    }
+  };
+
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    if (tab === 'tab-analytics') {
+      lazyLoadAnalyticsTickets();
+    } else if (tab === 'tab-schedule') {
+      lazyLoadScheduleTickets();
     }
   };
 
@@ -2361,35 +2414,35 @@ export default function Home() {
               <button
                 type="button"
                 className={`tab-btn ${activeTab === 'tab-daily' ? 'active' : ''}`}
-                onClick={() => setActiveTab('tab-daily')}
+                onClick={() => handleTabChange('tab-daily')}
               >
                 일일 업무 보고서
               </button>
               <button
                 type="button"
                 className={`tab-btn ${activeTab === 'tab-weekly' ? 'active' : ''}`}
-                onClick={() => setActiveTab('tab-weekly')}
+                onClick={() => handleTabChange('tab-weekly')}
               >
                 주간 업무 보고서
               </button>
               <button
                 type="button"
                 className={`tab-btn ${activeTab === 'tab-analytics' ? 'active' : ''}`}
-                onClick={() => setActiveTab('tab-analytics')}
+                onClick={() => handleTabChange('tab-analytics')}
               >
                 📊 실적 분석
               </button>
               <button
                 type="button"
                 className={`tab-btn ${activeTab === 'tab-raw' ? 'active' : ''}`}
-                onClick={() => setActiveTab('tab-raw')}
+                onClick={() => handleTabChange('tab-raw')}
               >
                 조회된 티켓 목록
               </button>
               <button
                 type="button"
                 className={`tab-btn ${activeTab === 'tab-schedule' ? 'active' : ''}`}
-                onClick={() => setActiveTab('tab-schedule')}
+                onClick={() => handleTabChange('tab-schedule')}
               >
                 🗓️ 일정관리
               </button>

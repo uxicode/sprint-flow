@@ -748,7 +748,7 @@ input:checked+.slider:before {
   border-radius: var(--radius-md);
   padding: 2rem;
   min-height: 400px;
-  max-height: 600px;
+  max-height: 800px;
   overflow-y: auto;
   font-family: inherit;
 }
@@ -1432,7 +1432,7 @@ input:checked+.slider:before {
 }
 
 .epic-card-header {
-  background: rgba(0, 0, 0, 0.25);
+  background: rgba(42, 42, 136, 0.004);
   border-bottom: 1px solid var(--border-color);
   padding: 1rem;
   display: flex;
