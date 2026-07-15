@@ -181,25 +181,32 @@ class JqlQueryBuilder {
       ? this.project.split(',').map(p => p.trim()).filter(p => p.length > 0)
       : [];
 
+    // 프로젝트가 2개 이상일 경우
     if (projects.length > 1) {
       const projQuery = projects.map(p => `"${p}"`).join(', ');
       jql = `project in (${projQuery})`;
+    // 프로젝트가 1개일 경우
     } else if (projects.length === 1) {
       jql = `project = "${projects[0]}"`;
+    // 프로젝트가 없을 경우
     } else {
       jql = 'project = "PROJ"';
     }
 
+    // 담당자가 있을 경우
     if (this.assignees.length > 0) {
       const membersQuery = this.assignees.map(m => `"${m}"`).join(', ');
       jql += ` AND assignee in (${membersQuery})`;
     }
+    // 상태가 있을 경우
     if (this.statuses.length > 0) {
       const statusesQuery = this.statuses.map(s => `"${s}"`).join(', ');
       jql += ` AND status in (${statusesQuery})`;
     }
     // 하위 작업(Sub-task) 제외
     jql += ' AND issuetype not in subTaskIssueTypes()';
+
+    // 날짜 범위가 있을 경우
     if (this.startDate && this.endDate) {
       if (this.dateField === 'updated') {
         jql += ` AND ((updated >= "${this.startDate}" AND updated <= "${this.endDate} 23:59") OR (duedate >= "${this.startDate}" AND duedate <= "${this.endDate}"))`;
@@ -266,6 +273,7 @@ const TicketMarkdownRenderer = {
   }
 };
 
+// 일일 업무 보고서 생성 전략
 class DailyReportStrategy extends ReportStrategy {
   generate(reportParams) {
     const { currList, nextList, start, end, proj, rawEvents, targetRegs, jiraUrl } = reportParams;
@@ -285,13 +293,18 @@ class DailyReportStrategy extends ReportStrategy {
 
     // 오늘 기한이거나 오늘 업데이트(작업)된 티켓들만 노출하도록 필터링
     const dailyTickets = currList.filter(t => t.updated === todayStr || t.duedate === todayStr);
+
+    // 일일 담당자 목록 생성
     const members = [...new Set(dailyTickets.map(t => t.assignee))];
+    // 휴가자 추가 
     const vacationOnlyMembers = activeDailyVacations.filter(v => !members.includes(v));
+    // 전체 담당자 목록 생성
     const allDailyMembers = [...members, ...vacationOnlyMembers];
 
     if (allDailyMembers.length === 0) {
       dailyMd += `오늘 작업했거나 기한인 진행 중/완료 티켓이 없습니다.\n`;
     } else {
+      // 담당자 별로 티켓 목록 생성
       allDailyMembers.forEach(member => {
         if (activeDailyVacations.includes(member)) {
           dailyMd += `## 👤 담당자: ${member} (🏝️ 당일 연차/휴가)\n\n`;
@@ -299,7 +312,9 @@ class DailyReportStrategy extends ReportStrategy {
           return;
         }
 
+        // 담당자 이름 표시 
         dailyMd += `## 👤 담당자: ${member}\n\n`;
+        // 담당자별 티켓 필터링
         const memberTickets = dailyTickets.filter(t => t.assignee === member);
 
         // 완료 목록 렌더링
@@ -326,6 +341,7 @@ class DailyReportStrategy extends ReportStrategy {
   }
 }
 
+// 주간 업무 보고서 생성 전략
 class WeeklyReportStrategy extends ReportStrategy {
   generate(reportParams) {
     const { currList, nextList, start, end, proj, rawEvents, targetRegs, jiraUrl } = reportParams;
