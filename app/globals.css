@@ -1605,13 +1605,13 @@ input:checked+.slider:before {
   cursor: pointer;
   text-decoration: underline;
   /* align-self: flex-start; */
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .ticket-summary-text {
   color: var(--text-primary);
   line-height: 1.4;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .ticket-key-assignee {
@@ -1632,7 +1632,7 @@ input:checked+.slider:before {
 
 .ticket-meta .assignee {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 12px;
   margin-right: 10px;
 }
 

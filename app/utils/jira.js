@@ -295,8 +295,10 @@ export class DailyReportStrategy extends ReportStrategy {
       // 담당자 별로 티켓 목록 생성
       allDailyMembers.forEach(member => {
         if (activeDailyVacations.includes(member)) {
-          dailyMd += `## 👤 담당자: ${member} (🏝️ 당일 연차/휴가)\n\n`;
-          dailyMd += `- 🏝️ 금일 연차(휴가) 일정으로 인해 Stand-up 보고 사항이 없습니다.\n\n---\n\n`;
+          dailyMd += `## 👤 담당자: ${member}\n\n`;
+          const vacDates = getMemberVacationDates(rawEvents, member, todayStr, todayStr);
+          const displayToday = dayjs(todayStr).format('YYYY.MM.DD');
+          dailyMd += `- 🏝️ ${vacDates || `연차 (${displayToday})`}\n\n---\n\n`;
           return;
         }
 

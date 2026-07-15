@@ -1246,22 +1246,119 @@ export default function Home() {
     } else if (activeTab === 'tab-weekly') {
       txt = weeklyReportMd;
       if (txt) {
-        const lines = txt.split('\n');
-        const transformedLines = lines.map(line => {
-          // ticketRegex matches standard bullet list ticket lines:
-          // Groups: 1 = indent, 2 = ticketKey, 3 = summary/content inside link, 4 = linkUrl, 5 = remainder
-          const ticketRegex = /^(\s*)[\*\-]\s*(?:✅|🔄|⏱|🟢|🔵|⏱️)?\s*(?:\[완료예정\]|\[진행예정\]|\[할일\])?\s*\[([A-Z0-9]+\-\d+)\s*:\s*(.*?)\]\((.*?)\)(.*)$/;
-          const match = line.match(ticketRegex);
-          if (match) {
-            const indent = match[1] || '';
-            let summary = match[3].trim();
-            // Remove starting parenthesized context prefix like (FE), (BE), (APP)
-            summary = summary.replace(/^\s*\([A-Za-z0-9가-힣\/\-]+\)\s*/, '').trim();
-            return `${indent}- ${summary}`;
-          }
-          return line;
-        });
-        txt = transformedLines.join('\n');
+        // Isolate Sections 1 & 2 (Overview & Metrics)
+        const parts = txt.split('## 📋 3. 팀원별 상세 업무 진행 현황');
+        const part1 = parts[0] || '';
+
+        // Build section 3 grouped by Epic (without assignees)
+        let section3 = `## 📋 3. 상세 업무 진행 현황\n\n`;
+        // Filter out 'To Do' (대기 중) tickets for this week's progress
+        const activeTickets = tickets.filter(t => getStatusCategory(t.status) !== 'To Do');
+
+        if (activeTickets.length === 0) {
+          section3 += `* 조회 기간 내 상세 티켓 내역이 없습니다.\n\n`;
+        } else {
+          const epicsMap = {};
+          activeTickets.forEach(t => {
+            const epicKey = t.epic ? t.epic.key : 'NO_EPIC';
+            const epicSummary = t.epic ? t.epic.summary : '에픽 없음 (기타 업무)';
+            if (!epicsMap[epicKey]) {
+              epicsMap[epicKey] = {
+                key: epicKey,
+                summary: epicSummary,
+                tickets: []
+              };
+            }
+            epicsMap[epicKey].tickets.push(t);
+          });
+
+          // Sort epics, placing NO_EPIC at the end
+          const sortedEpicKeys = Object.keys(epicsMap).sort((a, b) => {
+            if (a === 'NO_EPIC') return 1;
+            if (b === 'NO_EPIC') return -1;
+            return a.localeCompare(b);
+          });
+
+          sortedEpicKeys.forEach(epicKey => {
+            const epic = epicsMap[epicKey];
+            if (epicKey === 'NO_EPIC') {
+              section3 += `### 🏷️ ${epic.summary}\n`;
+            } else {
+              section3 += `### 🏷️ 에픽: ${epic.summary} (${epic.key})\n`;
+            }
+            epic.tickets.forEach(t => {
+              let summary = (t.summary || '').trim();
+              // Remove starting parenthesized context prefix like (FE), (BE), (APP)
+              summary = summary.replace(/^\s*\([A-Za-z0-9가-힣\/\-]+\)\s*/, '').trim();
+              const cat = getStatusCategory(t.status);
+              const statusLabel = cat === 'Done' ? '완료' : cat === 'In Progress' ? '진행 중' : '대기 중';
+              section3 += `- ${summary} (${statusLabel})\n`;
+            });
+            section3 += `\n`;
+          });
+        }
+
+        // Add vacation/holiday status if any
+        const activeWeeklyVacations = Array.isArray(vacationList)
+          ? (vacationList.length > 0 && typeof vacationList[0] === 'string'
+            ? vacationList
+            : getVacationMembers(vacationList, dateStart, dateEnd, registeredMembers))
+          : [];
+
+        if (activeWeeklyVacations.length > 0) {
+          section3 += `### 🏝️ 휴가 및 연차 현황\n`;
+          activeWeeklyVacations.forEach(member => {
+            const vacDates = getMemberVacationDates(vacationList, member, dateStart, dateEnd);
+            section3 += `- ${member}: ${vacDates || '연차'}\n`;
+          });
+          section3 += `\n`;
+        }
+
+        // Build section 4 grouped by Epic (without assignees)
+        let section4 = `## 🚀 4. 다음 주 주요 계획 및 이슈 사항\n\n`;
+        if (nextTickets.length === 0) {
+          section4 += `* **마일스톤 점검**: 다음 주 예정된 지라 티켓이 등록되어 있지 않거나 계획을 불러올 수 없습니다.\n`;
+          section4 += `* **장애 요인**: 예정된 주요 마일스톤에 지연 요소가 없는지 리스크 사전 점검.\n`;
+        } else {
+          const epicsMap = {};
+          nextTickets.forEach(t => {
+            const epicKey = t.epic ? t.epic.key : 'NO_EPIC';
+            const epicSummary = t.epic ? t.epic.summary : '에픽 없음 (기타 업무)';
+            if (!epicsMap[epicKey]) {
+              epicsMap[epicKey] = {
+                key: epicKey,
+                summary: epicSummary,
+                tickets: []
+              };
+            }
+            epicsMap[epicKey].tickets.push(t);
+          });
+
+          // Sort epics, placing NO_EPIC at the end
+          const sortedEpicKeys = Object.keys(epicsMap).sort((a, b) => {
+            if (a === 'NO_EPIC') return 1;
+            if (b === 'NO_EPIC') return -1;
+            return a.localeCompare(b);
+          });
+
+          sortedEpicKeys.forEach(epicKey => {
+            const epic = epicsMap[epicKey];
+            if (epicKey === 'NO_EPIC') {
+              section4 += `### 🏷️ ${epic.summary}\n`;
+            } else {
+              section4 += `### 🏷️ 에픽: ${epic.summary} (${epic.key})\n`;
+            }
+            epic.tickets.forEach(t => {
+              let summary = (t.summary || '').trim();
+              // Remove starting parenthesized context prefix like (FE), (BE), (APP)
+              summary = summary.replace(/^\s*\([A-Za-z0-9가-힣\/\-]+\)\s*/, '').trim();
+              section4 += `- ${summary}\n`;
+            });
+            section4 += `\n`;
+          });
+        }
+        
+        txt = part1.trimEnd() + '\n\n' + section3.trimEnd() + '\n\n' + section4.trimEnd() + '\n';
       }
       name = `Weekly_Report_${dateStart}_to_${dateEnd}.md`;
     } else {
@@ -2247,14 +2344,12 @@ export default function Home() {
                                   <ul className="schedule-ticket-list">
                                     {epic.categorizedTickets.BE.map(t => (
                                       <li key={t.key} className="schedule-ticket-item">
-                                        <div className="ticket-key-assignee">
-                                          <span className="ticket-key-link" onClick={() => window.open(getTicketLink(t.key, url), '_blank')}>{t.key}</span>
-                                          <div className="ticket-meta">
-                                            <span className="assignee">👤 {t.assignee || '미지정'}</span>
-                                            <span className={`status-tag ${getStatusCategory(t.status).toLowerCase().replace(' ', '-')}`}>{t.status}</span>
-                                          </div>
-                                        </div>
+                                        <span className="ticket-key-link" onClick={() => window.open(getTicketLink(t.key, url), '_blank')}>{t.key}</span>
                                         <span className="ticket-summary-text">{t.summary}</span>
+                                        <div className="ticket-meta">
+                                          <span className="assignee">👤 {t.assignee || '미지정'}</span>
+                                          <span className={`status-tag ${getStatusCategory(t.status).toLowerCase().replace(' ', '-')}`}>{t.status}</span>
+                                        </div>
                                       </li>
                                     ))}
                                   </ul>
