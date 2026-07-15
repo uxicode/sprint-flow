@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import dayjs from 'dayjs';
 import PerformanceAnalytics from './components/PerformanceAnalytics';
 
 // ============================================================================
@@ -23,11 +24,7 @@ const getLocalDateStr = (dateObj) => {
   if (!dateObj) return '';
   if (dateObj.date) return dateObj.date; // YYYY-MM-DD
   if (dateObj.dateTime) {
-    const d = new Date(dateObj.dateTime);
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
-    return `${yyyy}-${mm}-${dd}`;
+    return dayjs(dateObj.dateTime).format('YYYY-MM-DD');
   }
   return '';
 };
@@ -96,15 +93,16 @@ const getMemberVacationDates = (events, member, startRange, endRange) => {
     if (isEventOverlapping(evt.start, evt.end, startRange, endRange)) {
       const { isVacation, name, matchedWord } = parseVacationEvent(summary);
       if (isVacation && name === member) {
-        const eventStartDate = getLocalDateStr(evt.start);
+        const startVal = evt.start?.date || evt.start?.dateTime;
+        const endVal = evt.end?.date || evt.end?.dateTime;
+        const eventStartDate = startVal ? dayjs(startVal).format('YYYY.MM.DD') : '';
         let dateStr = '';
         if (evt.start?.date) {
-          const d = new Date(evt.end.date);
-          d.setDate(d.getDate() - 1);
-          const formattedEndDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-\ ${String(d.getDate()).padStart(2, '0')}`.replace(/\s+/g, '');
+          // 종일 이벤트의 경우 end.date는 다음날 0시로 지정되므로 하루를 뺍니다.
+          const formattedEndDate = dayjs(evt.end.date).subtract(1, 'day').format('YYYY.MM.DD');
           dateStr = eventStartDate === formattedEndDate ? eventStartDate : `${eventStartDate} ~ ${formattedEndDate}`;
         } else {
-          const eventEndDate = getLocalDateStr(evt.end);
+          const eventEndDate = endVal ? dayjs(endVal).format('YYYY.MM.DD') : '';
           dateStr = eventStartDate === eventEndDate ? eventStartDate : `${eventStartDate} ~ ${eventEndDate}`;
         }
         vacationStrings.push(`${matchedWord} (${dateStr})`);
@@ -178,7 +176,20 @@ class JqlQueryBuilder {
   }
 
   build() {
-    let jql = `project = "${this.project}"`;
+    let jql = '';
+    const projects = this.project
+      ? this.project.split(',').map(p => p.trim()).filter(p => p.length > 0)
+      : [];
+
+    if (projects.length > 1) {
+      const projQuery = projects.map(p => `"${p}"`).join(', ');
+      jql = `project in (${projQuery})`;
+    } else if (projects.length === 1) {
+      jql = `project = "${projects[0]}"`;
+    } else {
+      jql = 'project = "PROJ"';
+    }
+
     if (this.assignees.length > 0) {
       const membersQuery = this.assignees.map(m => `"${m}"`).join(', ');
       jql += ` AND assignee in (${membersQuery})`;
@@ -209,27 +220,72 @@ class ReportStrategy {
   }
 }
 
+// 티켓 마크다운 공통 렌더러 (추상화 헬퍼)
+const TicketMarkdownRenderer = {
+  // 개별 티켓 포맷팅
+  format(ticket, jiraUrl, { showStatus = false, showUpdate = false } = {}) {
+    const epicInfo = ticket.epic ? ` *(에픽: ${ticket.epic.key}: ${escapeBrackets(ticket.epic.summary)})*` : '';
+    const details = [];
+    if (showStatus) details.push(`\`${ticket.status}\``);
+    if (showUpdate) {
+      const formattedDate = ticket.duedate ? dayjs(ticket.duedate).format('YYYY.MM.DD') : dayjs().format('YYYY.MM.DD');
+      details.push(`기한: ${formattedDate}`);
+    }
+    
+    const detailsStr = details.length > 0 ? ` (${details.join(', ')})` : '';
+    return `[${ticket.key}: ${escapeBrackets(ticket.summary)}](${getTicketLink(ticket.key, jiraUrl)})${detailsStr}${epicInfo}`;
+  },
+
+  // 특정 상태(카테고리) 티켓 그룹 렌더링
+  renderGroup(tickets, jiraUrl, {
+    category,
+    title,
+    emptyMessage,
+    symbol = '',
+    bullet = '- ',
+    showStatus = false,
+    showUpdate = false
+  }) {
+    const filtered = tickets.filter(t => getStatusCategory(t.status) === category);
+    let md = `${title}\n`;
+    if (filtered.length === 0) {
+      md += `${bullet}${emptyMessage}\n`;
+    } else {
+      filtered.forEach(t => {
+        const itemSymbol = symbol ? `${symbol} ` : '';
+        const formatted = this.format(t, jiraUrl, { showStatus, showUpdate });
+        md += `${bullet}${itemSymbol}${formatted}\n`;
+      });
+    }
+    return md;
+  }
+};
+
 class DailyReportStrategy extends ReportStrategy {
   generate(reportParams) {
     const { currList, nextList, start, end, proj, rawEvents, targetRegs, jiraUrl } = reportParams;
-    const todayObj = new Date();
-    const todayStr = `${todayObj.getFullYear()}-${String(todayObj.getMonth() + 1).padStart(2, '0')}-${String(todayObj.getDate()).padStart(2, '0')}`;
+    const todayStr = dayjs().format('YYYY-MM-DD');
     const activeDailyVacations = Array.isArray(rawEvents)
       ? (rawEvents.length > 0 && typeof rawEvents[0] === 'string'
         ? rawEvents
         : getVacationMembers(rawEvents, todayStr, todayStr, targetRegs))
       : [];
 
-    let dailyMd = `# 📅 일일 업무 STAND-UP 보고서\n\n`;
-    dailyMd += `> **보고 기간**: ${start} ~ ${end}\n`;
-    dailyMd += `> **생성 일시**: ${new Date().toLocaleString('ko-KR')}\n\n`;
+    const displayStart = dayjs(start).format('YYYY.MM.DD');
+    const displayEnd = dayjs(end).format('YYYY.MM.DD');
 
-    const members = [...new Set(currList.map(t => t.assignee))];
+    let dailyMd = `# 📅 일일 업무 STAND-UP 보고서\n\n`;
+    dailyMd += `> **보고 기간**: ${displayStart} ~ ${displayEnd}\n`;
+    dailyMd += `> **생성 일시**: ${dayjs().format('YYYY.MM.DD HH:mm:ss')}\n\n`;
+
+    // 오늘 기한이거나 오늘 업데이트(작업)된 티켓들만 노출하도록 필터링
+    const dailyTickets = currList.filter(t => t.updated === todayStr || t.duedate === todayStr);
+    const members = [...new Set(dailyTickets.map(t => t.assignee))];
     const vacationOnlyMembers = activeDailyVacations.filter(v => !members.includes(v));
     const allDailyMembers = [...members, ...vacationOnlyMembers];
 
     if (allDailyMembers.length === 0) {
-      dailyMd += `조회 기간 내 진행 중이거나 완료된 티켓이 없습니다.\n`;
+      dailyMd += `오늘 작업했거나 기한인 진행 중/완료 티켓이 없습니다.\n`;
     } else {
       allDailyMembers.forEach(member => {
         if (activeDailyVacations.includes(member)) {
@@ -239,30 +295,25 @@ class DailyReportStrategy extends ReportStrategy {
         }
 
         dailyMd += `## 👤 담당자: ${member}\n\n`;
-        const memberTickets = currList.filter(t => t.assignee === member);
-        const completed = memberTickets.filter(t => getStatusCategory(t.status) === 'Done');
-        const progressing = memberTickets.filter(t => getStatusCategory(t.status) === 'In Progress');
+        const memberTickets = dailyTickets.filter(t => t.assignee === member);
 
-        dailyMd += `### 🟢 오늘 완료한 업무 (Done)\n`;
-        if (completed.length === 0) {
-          dailyMd += `- 완료된 업무가 없습니다.\n`;
-        } else {
-          completed.forEach(t => {
-            const epicInfo = t.epic ? ` *(에픽: ${t.epic.key}: ${escapeBrackets(t.epic.summary)})*` : '';
-            dailyMd += `- [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key, jiraUrl)}) (업데이트: ${t.updated})${epicInfo}\n`;
-          });
-        }
+        // 완료 목록 렌더링
+        dailyMd += TicketMarkdownRenderer.renderGroup(memberTickets, jiraUrl, {
+          category: 'Done',
+          title: '### 🟢 오늘 완료한 업무 (Done)',
+          emptyMessage: '완료된 업무가 없습니다.',
+          bullet: '- ',
+          showUpdate: true
+        });
         dailyMd += `\n`;
 
-        dailyMd += `### 🔵 현재 진행 중인 업무 (In Progress)\n`;
-        if (progressing.length === 0) {
-          dailyMd += `- 진행 중인 업무가 없습니다.\n`;
-        } else {
-          progressing.forEach(t => {
-            const epicInfo = t.epic ? ` *(에픽: ${t.epic.key}: ${escapeBrackets(t.epic.summary)})*` : '';
-            dailyMd += `- [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key, jiraUrl)})${epicInfo}\n`;
-          });
-        }
+        // 진행중 목록 렌더링
+        dailyMd += TicketMarkdownRenderer.renderGroup(memberTickets, jiraUrl, {
+          category: 'In Progress',
+          title: '### 🔵 현재 진행 중인 업무 (In Progress)',
+          emptyMessage: '진행 중인 업무가 없습니다.',
+          bullet: '- '
+        });
         dailyMd += `\n---\n\n`;
       });
     }
@@ -284,10 +335,13 @@ class WeeklyReportStrategy extends ReportStrategy {
     const progressingCount = currList.filter(t => getStatusCategory(t.status) === 'In Progress').length;
     const todoCount = total - completedCount - progressingCount;
 
+    const displayStart = dayjs(start).format('YYYY.MM.DD');
+    const displayEnd = dayjs(end).format('YYYY.MM.DD');
+
     let weeklyMd = `# 📊 주간 프로젝트 업무 보고서\n\n`;
     weeklyMd += `## 🗓️ 1. 보고서 요약 개요\n\n`;
-    weeklyMd += `* **작성 일자**: ${new Date().toLocaleDateString('ko-KR')}\n`;
-    weeklyMd += `* **대상 기간**: ${start} ~ ${end}\n`;
+    weeklyMd += `* **작성 일자**: ${dayjs().format('YYYY.MM.DD')}\n`;
+    weeklyMd += `* **대상 기간**: ${displayStart} ~ ${displayEnd}\n`;
     weeklyMd += `* **프로젝트 코드**: \`${proj}\`\n\n`;
 
     weeklyMd += `### 📈 2. 이번 주 진행 상태 메트릭스\n\n`;
@@ -322,11 +376,15 @@ class WeeklyReportStrategy extends ReportStrategy {
             weeklyMd += `* 진행한 티켓이 없습니다.\n`;
           }
         } else {
-          memberTickets.forEach(t => {
-            const cat = getStatusCategory(t.status);
-            const statusIndicator = (cat === 'Done') ? '✅' : (cat === 'In Progress') ? '🔄' : '⏱️';
-            const epicInfo = t.epic ? ` *(에픽: ${t.epic.key}: ${escapeBrackets(t.epic.summary)})*` : '';
-            weeklyMd += `* ${statusIndicator} [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key, jiraUrl)}) (\`${t.status}\`, 업데이트: ${t.updated})${epicInfo}\n`;
+          // 세부 분류 항목 정의
+          const ticketCategories = [
+            { category: 'Done', title: '* **완료 (Done)**', emptyMessage: '(없음)', symbol: '✅', bullet: '  * ', showStatus: true, showUpdate: true },
+            { category: 'In Progress', title: '* **진행 중 (In Progress)**', emptyMessage: '(없음)', symbol: '🔄', bullet: '  * ', showStatus: true, showUpdate: true },
+            { category: 'To Do', title: '* **해야할 일 (To Do)**', emptyMessage: '(없음)', symbol: '⏱', bullet: '  * ', showStatus: true, showUpdate: true }
+          ];
+
+          ticketCategories.forEach(config => {
+            weeklyMd += TicketMarkdownRenderer.renderGroup(memberTickets, jiraUrl, config);
           });
         }
         weeklyMd += `\n`;
@@ -389,6 +447,7 @@ export default function Home() {
   const [calendarAccessToken, setCalendarAccessToken] = useState('');
   const [calendarRefreshToken, setCalendarRefreshToken] = useState('');
   const [calendarAuthStatus, setCalendarAuthStatus] = useState('disconnected'); // 'disconnected' | 'connecting' | 'connected' | 'error'
+  const [calendarErrorMessage, setCalendarErrorMessage] = useState('');
   const [apiMode, setApiMode] = useState(false);
 
   // 팀원 관리 상태
@@ -401,6 +460,15 @@ export default function Home() {
   const [dateStart, setDateStart] = useState('');
   const [dateEnd, setDateEnd] = useState('');
   const [isFilterOpen, setIsFilterOpen] = useState(true);
+  const [isStatsJqlOpen, setIsStatsJqlOpen] = useState(true);
+  const [expandedEpics, setExpandedEpics] = useState({});
+
+  const toggleEpicCollapse = (epicKey) => {
+    setExpandedEpics(prev => ({
+      ...prev,
+      [epicKey]: !prev[epicKey]
+    }));
+  };
 
   // 실적 분석 별도 필터 및 데이터 상태
   const [analyticsProjectKey, setAnalyticsProjectKey] = useState('DI26');
@@ -479,33 +547,16 @@ export default function Home() {
   useEffect(() => {
     setMounted(true);
 
-    // YYYY-MM-DD 로컬 타임 포맷팅 헬퍼
-    const toLocalDateStr = (d) => {
-      const yyyy = d.getFullYear();
-      const mm = String(d.getMonth() + 1).padStart(2, '0');
-      const dd = String(d.getDate()).padStart(2, '0');
-      return `${yyyy}-${mm}-${dd}`;
-    };
-
-    // 날짜 디폴트 계산: 이번 주 월요일 ~ 이번 주 금요일
-    const today = new Date();
-    const currentDay = today.getDay();
-
-    const distanceToMonday = currentDay === 0 ? -6 : 1 - currentDay;
-    const monday = new Date(today);
-    monday.setDate(today.getDate() + distanceToMonday);
-
-    const distanceToFriday = currentDay === 0 ? -2 : 5 - currentDay;
-    const friday = new Date(today);
-    friday.setDate(today.getDate() + distanceToFriday);
-
-    const mondayStr = toLocalDateStr(monday);
-    const fridayStr = toLocalDateStr(friday);
+    // 날짜 디폴트 계산: 이번 주 월요일 ~ 이번 주 금요일 (dayjs 사용)
+    const today = dayjs();
+    const mondayStr = today.day() === 0 ? today.subtract(6, 'day').format('YYYY-MM-DD') : today.day(1).format('YYYY-MM-DD');
+    const fridayStr = today.day() === 0 ? today.subtract(2, 'day').format('YYYY-MM-DD') : today.day(5).format('YYYY-MM-DD');
+    
     setDateStart(mondayStr);
     setDateEnd(fridayStr);
 
     // 실적 분석 디폴트 기간 설정: 올해 1월 1일 ~ 올해 12월 31일
-    const thisYear = new Date().getFullYear();
+    const thisYear = dayjs().year();
     setAnalyticsDateStart(`${thisYear}-01-01`);
     setAnalyticsDateEnd(`${thisYear}-12-31`);
 
@@ -580,8 +631,17 @@ export default function Home() {
     const urlParams = new URLSearchParams(window.location.search);
     const calendarAuth = urlParams.get('calendar_auth');
     const calendarCode = urlParams.get('calendar_code');
+    const urlCalendarId = urlParams.get('calendar_id');
+
     if (calendarAuth === 'success' && calendarCode) {
-      // URL에서 code 파라미터를 제거 (깨끗한 URL 유지)
+      // 리디렉트 파라미터에 포함되어 돌아온 calendar_id가 있다면 복구 및 저장
+      if (urlCalendarId) {
+        setCalendarId(urlCalendarId);
+        activeCalendarId = urlCalendarId;
+        localStorage.setItem('workflow_calendar_settings', JSON.stringify({ calendarId: urlCalendarId }));
+      }
+
+      // URL에서 파라미터들을 안전하게 제거하여 깨끗한 URL 유지
       const cleanUrl = new URL(window.location);
       cleanUrl.searchParams.delete('calendar_auth');
       cleanUrl.searchParams.delete('calendar_code');
@@ -689,14 +749,11 @@ export default function Home() {
   };
 
   const getNextWeekJql = () => {
-    const start = dateStart || new Date().toISOString().split('T')[0];
-    const end = dateEnd || new Date().toISOString().split('T')[0];
-    const nextStart = new Date(start);
-    nextStart.setDate(nextStart.getDate() + 7);
-    const nextStartStr = nextStart.toISOString().split('T')[0];
-    const nextEnd = new Date(end);
-    nextEnd.setDate(nextEnd.getDate() + 7);
-    const nextEndStr = nextEnd.toISOString().split('T')[0];
+    const todayStr = dayjs().format('YYYY-MM-DD');
+    const start = dateStart || todayStr;
+    const end = dateEnd || todayStr;
+    const nextStartStr = dayjs(start).add(7, 'day').format('YYYY-MM-DD');
+    const nextEndStr = dayjs(end).add(7, 'day').format('YYYY-MM-DD');
 
     return new JqlQueryBuilder()
       .setProject(projectKey)
@@ -706,7 +763,7 @@ export default function Home() {
   };
 
   const getScheduleJql = (proj = projectKey, members = teamMembers) => {
-    const thisYear = new Date().getFullYear();
+    const thisYear = dayjs().year();
     return new JqlQueryBuilder()
       .setProject(proj)
       .setAssignees(members)
@@ -799,7 +856,7 @@ export default function Home() {
       assignee: issue.fields?.assignee ? (issue.fields.assignee.displayName || issue.fields.assignee.name || '미지정') : '미지정',
       updated: issue.fields?.updated ? issue.fields.updated.substring(0, 10) : '',
       created: issue.fields?.created ? issue.fields.created.substring(0, 10) : '',
-      duedate: issue.fields?.duedate ? issue.fields.duedate : '',
+      duedate: issue.fields?.duedate ? issue.fields.duedate : dayjs().format('YYYY-MM-DD'),
       epic: issue.fields?.parent ? {
         key: issue.fields.parent.key || '',
         summary: issue.fields.parent.fields?.summary || ''
@@ -827,22 +884,25 @@ export default function Home() {
       '반응형 대응을 위한 @container 쿼리 선언 및 모바일 뷰 보완'
     ];
 
+    const projects = projKey.split(',').map(p => p.trim()).filter(p => p.length > 0);
+    const mainProjKey = projects.length > 0 ? projects[0] : 'PROJ';
+
     const statusOptions = ['Done', 'In Progress', 'To Do'];
     const dummyEpics = [
-      { key: `${projKey}-10`, summary: '웹 대시보드 리팩토링 및 현대화' },
-      { key: `${projKey}-20`, summary: 'Jira & Confluence 오픈 API 연동' },
-      { key: `${projKey}-30`, summary: 'UI/UX 고도화 및 사용자 경험 개선' }
+      { key: `${mainProjKey}-10`, summary: '웹 대시보드 리팩토링 및 현대화' },
+      { key: `${mainProjKey}-20`, summary: 'Jira & Confluence 오픈 API 연동' },
+      { key: `${mainProjKey}-30`, summary: 'UI/UX 고도화 및 사용자 경험 개선' }
     ];
     const result = [];
 
     const dateArray = [];
-    let currentDate = new Date(start);
-    const stopDate = new Date(end);
-    while (currentDate <= stopDate) {
-      dateArray.push(new Date(currentDate).toISOString().split('T')[0]);
-      currentDate.setDate(currentDate.getDate() + 1);
+    let curr = dayjs(start);
+    const stop = dayjs(end);
+    while (curr.isBefore(stop) || curr.isSame(stop, 'day')) {
+      dateArray.push(curr.format('YYYY-MM-DD'));
+      curr = curr.add(1, 'day');
     }
-    if (dateArray.length === 0) dateArray.push(new Date().toISOString().split('T')[0]);
+    if (dateArray.length === 0) dateArray.push(dayjs().format('YYYY-MM-DD'));
 
     const members = membersStr.split(',').map(m => m.trim()).filter(m => m.length > 0);
     const targetMembers = members.length > 0 ? members : ['홍길동', '김철수', '이영희'];
@@ -867,13 +927,13 @@ export default function Home() {
           : (i % dateArray.length);
         const dummyDate = dateArray[dateIndex];
 
-        // 기한을 업데이트일로부터 3~7일 뒤로 설정하여 현실적인 데드라인 제공
-        const updatedDate = new Date(dummyDate);
-        updatedDate.setDate(updatedDate.getDate() + 5);
-        const dummyDuedate = updatedDate.toISOString().split('T')[0];
+        // 기한을 업데이트일로부터 0일 또는 5일 뒤로 설정하여 시뮬레이터에서 기한이 오늘인 티켓 테스트가 가능하도록 설정
+        const offsetDays = (memberSeed + i) % 3 === 0 ? 0 : 5;
+        const dummyDuedate = dayjs(dummyDate).add(offsetDays, 'day').format('YYYY-MM-DD');
 
+        const currentProj = projects[(memberSeed + i) % projects.length] || mainProjKey;
         result.push({
-          key: `${projKey}-${keyCounter++}`,
+          key: `${currentProj}-${keyCounter++}`,
           summary: dummySummary,
           status: dummyStatus,
           assignee: member,
@@ -885,7 +945,7 @@ export default function Home() {
       }
     });
 
-    return result.sort((a, b) => new Date(b.updated) - new Date(a.updated));
+    return result.sort((a, b) => dayjs(b.updated).valueOf() - dayjs(a.updated).valueOf());
   };
 
   // Google Calendar 연차 로더 및 연차자 판별 헬퍼 (OAuth 2.0 전용)
@@ -923,16 +983,21 @@ export default function Home() {
       });
 
       if (!response.ok) {
-        const errData = await response.json();
+        let errData = {};
+        try { errData = await response.json(); } catch (_) { /* 응답 body가 JSON이 아닌 경우 무시 */ }
+        const errMsg = errData.error || `Calendar API 오류 (HTTP ${response.status})`;
+        setCalendarErrorMessage(errMsg);
         if (errData.needReauth) {
-          console.warn('[Calendar OAuth] 재인증 필요:', errData.error);
+          console.warn('[Calendar OAuth] 재인증 필요:', errMsg);
           setCalendarAuthStatus('error');
-          return [];
+        } else {
+          console.warn('[Calendar OAuth] 이벤트 조회 실패:', errMsg);
         }
-        throw new Error(errData.error || '이벤트 조회 실패');
+        return [];
       }
 
       const data = await response.json();
+      setCalendarErrorMessage(''); // 성공 시 에러 초기화
 
       // 새 access_token이 발급된 경우 업데이트
       if (data.newAccessToken) {
@@ -951,8 +1016,8 @@ export default function Home() {
       console.log(`[Calendar OAuth] ${(data.items || []).length}건 이벤트 로드 완료`);
       return data.items || [];
     } catch (e) {
-      console.error('캘린더 OAuth 연차 로드 에러:', e);
-      alert(`[회사 캘린더 연동 실패]\n\n원인: ${e.message}\n\n이 오류는 Google Cloud Console에서 Google Calendar API가 활성화되어 있지 않기 때문일 수 있습니다. 메시지에 포함된 URL에 방문하여 API를 활성화해 주세요.`);
+      console.warn('캘린더 OAuth 연차 로드 에러 (무시하고 계속 진행):', e.message);
+      setCalendarErrorMessage(e.message);
       return [];
     }
   };
@@ -964,7 +1029,7 @@ export default function Home() {
     setIsLoading(true);
     setIsAnalyticsLoading(true);
 
-    const thisYear = new Date().getFullYear();
+    const thisYear = dayjs().year();
     const startOfYear = `${thisYear}-01-01`;
     const endOfYear = `${thisYear}-12-31`;
 
@@ -972,12 +1037,8 @@ export default function Home() {
       const proj = params.projectKey.trim() || 'PROJ';
       const members = params.teamMembers.split(',').map(m => m.trim()).filter(m => m.length > 0);
 
-      const nextStart = new Date(params.start);
-      nextStart.setDate(nextStart.getDate() + 7);
-      const nextEnd = new Date(params.end);
-      nextEnd.setDate(nextEnd.getDate() + 7);
-      const nextStartStr = nextStart.toISOString().split('T')[0];
-      const nextEndStr = nextEnd.toISOString().split('T')[0];
+      const nextStartStr = dayjs(params.start).add(7, 'day').format('YYYY-MM-DD');
+      const nextEndStr = dayjs(params.end).add(7, 'day').format('YYYY-MM-DD');
 
       const jql = new JqlQueryBuilder()
         .setProject(proj)
@@ -1064,11 +1125,9 @@ export default function Home() {
       setTimeout(() => {
         const mock = generateMockTickets(params.projectKey, params.teamMembers, params.start, params.end);
 
-        const nextStart = new Date(params.start);
-        nextStart.setDate(nextStart.getDate() + 7);
-        const nextEnd = new Date(params.end);
-        nextEnd.setDate(nextEnd.getDate() + 7);
-        const nextMock = generateMockTickets(params.projectKey, params.teamMembers, nextStart.toISOString().split('T')[0], nextEnd.toISOString().split('T')[0]);
+        const nextStartStr = dayjs(params.start).add(7, 'day').format('YYYY-MM-DD');
+        const nextEndStr = dayjs(params.end).add(7, 'day').format('YYYY-MM-DD');
+        const nextMock = generateMockTickets(params.projectKey, params.teamMembers, nextStartStr, nextEndStr);
         const analyticsMock = generateMockTickets(params.projectKey, params.teamMembers, startOfYear, endOfYear);
         const scheduleMock = generateMockTickets(params.projectKey, params.teamMembers, startOfYear, endOfYear);
 
@@ -1093,10 +1152,8 @@ export default function Home() {
 
     const start = dateStart;
     const end = dateEnd;
-    const nextStart = new Date(start);
-    nextStart.setDate(nextStart.getDate() + 7);
-    const nextEnd = new Date(end);
-    nextEnd.setDate(nextEnd.getDate() + 7);
+    const nextStartStr = dayjs(start).add(7, 'day').format('YYYY-MM-DD');
+    const nextEndStr = dayjs(end).add(7, 'day').format('YYYY-MM-DD');
 
     const jql = getJql();
     const nextJql = getNextWeekJql();
@@ -1156,9 +1213,9 @@ export default function Home() {
       // 시뮬레이터 동작
       setTimeout(() => {
         const mock = generateMockTickets(projectKey, teamMembers, start, end);
-        const nextMock = generateMockTickets(projectKey, teamMembers, nextStart.toISOString().split('T')[0], nextEnd.toISOString().split('T')[0]);
+        const nextMock = generateMockTickets(projectKey, teamMembers, nextStartStr, nextEndStr);
         const analyticsMock = generateMockTickets(analyticsProjectKey, analyticsTeamMembers, analyticsDateStart, analyticsDateEnd);
-        const thisYear = new Date().getFullYear();
+        const thisYear = dayjs().year();
         const scheduleMock = generateMockTickets(projectKey, teamMembers, `${thisYear}-01-01`, `${thisYear}-12-31`);
 
         const currentVacationList = ['이영희']; // 시뮬레이션 고정 연차자
@@ -1246,7 +1303,7 @@ export default function Home() {
 
     const getLatestUpdate = (epicTickets) => {
       if (!epicTickets || epicTickets.length === 0) return 0;
-      const dates = epicTickets.map(t => new Date(t.updated || 0).getTime());
+      const dates = epicTickets.map(t => dayjs(t.updated || 0).valueOf());
       return Math.max(...dates);
     };
 
@@ -1414,11 +1471,13 @@ export default function Home() {
 
     if (activeTab === 'tab-daily') {
       reportText = dailyReportMd;
-      const todayStr = new Date().toISOString().split('T')[0];
+      const todayStr = dayjs().format('YYYY.MM.DD');
       reportTitle = `📅 [일일업무] ${todayStr}`;
     } else if (activeTab === 'tab-weekly') {
       reportText = weeklyReportMd;
-      reportTitle = `📊 [주간업무] ${dateStart} ~ ${dateEnd}`;
+      const displayStart = dayjs(dateStart).format('YYYY.MM.DD');
+      const displayEnd = dayjs(dateEnd).format('YYYY.MM.DD');
+      reportTitle = `📊 [주간업무] ${displayStart} ~ ${displayEnd}`;
     } else {
       alert('컨플루언스에 등록할 보고서 탭(일일 혹은 주간)을 선택해 주세요.');
       return;
@@ -1546,6 +1605,24 @@ export default function Home() {
       name = `Daily_Report_${dateStart}_to_${dateEnd}.md`;
     } else if (activeTab === 'tab-weekly') {
       txt = weeklyReportMd;
+      if (txt) {
+        const lines = txt.split('\n');
+        const transformedLines = lines.map(line => {
+          // ticketRegex matches standard bullet list ticket lines:
+          // Groups: 1 = indent, 2 = ticketKey, 3 = summary/content inside link, 4 = linkUrl, 5 = remainder
+          const ticketRegex = /^(\s*)[\*\-]\s*(?:✅|🔄|⏱|🟢|🔵|⏱️)?\s*(?:\[완료예정\]|\[진행예정\]|\[할일\])?\s*\[([A-Z0-9]+\-\d+)\s*:\s*(.*?)\]\((.*?)\)(.*)$/;
+          const match = line.match(ticketRegex);
+          if (match) {
+            const indent = match[1] || '';
+            let summary = match[3].trim();
+            // Remove starting parenthesized context prefix like (FE), (BE), (APP)
+            summary = summary.replace(/^\s*\([A-Za-z0-9가-힣\/\-]+\)\s*/, '').trim();
+            return `${indent}- ${summary}`;
+          }
+          return line;
+        });
+        txt = transformedLines.join('\n');
+      }
       name = `Weekly_Report_${dateStart}_to_${dateEnd}.md`;
     } else {
       alert('다운로드할 보고서 탭을 선택해 주세요.');
@@ -1592,7 +1669,7 @@ export default function Home() {
     html = html.replace(/^---$/gm, '<hr>');
 
     // 마크다운 하이퍼링크 [TEXT](LINK) -> HTML <a> 태그 변환
-    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color: #6366f1; text-decoration: underline;">$1</a>');
+    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color: #4e88f9; text-decoration: underline; font-weight: 600;">$1</a>');
 
     // 테이블 파싱
     const lines = html.split('\n');
@@ -1817,6 +1894,22 @@ export default function Home() {
             </span>
           </div>
 
+          {calendarErrorMessage && (
+            <div style={{
+              fontSize: '0.72rem',
+              color: '#ef4444',
+              backgroundColor: 'rgba(239, 68, 68, 0.08)',
+              border: '1px solid rgba(239, 68, 68, 0.2)',
+              padding: '0.4rem 0.6rem',
+              borderRadius: '0.35rem',
+              marginBottom: '0.5rem',
+              wordBreak: 'break-all',
+              lineHeight: '1.25'
+            }}>
+              ⚠️ {calendarErrorMessage}
+            </div>
+          )}
+
           {/* Google 계정 연동 버튼 */}
           <button
             type="button"
@@ -1837,7 +1930,7 @@ export default function Home() {
                 alert('OAuth Client ID를 먼저 입력해 주세요.');
                 return;
               }
-              // 먼저 OAuth 설정을 localStorage에 저장 (콜백에서 복구하기 위해)
+              // OAuth 연결을 진행할 때, 입력한 값들을 로컬 스토리지에 미리 백업하여 리디렉트 복귀 시 복구 보장
               const oauthData = {
                 clientId: calendarClientId,
                 clientSecret: calendarClientSecret,
@@ -1846,6 +1939,9 @@ export default function Home() {
                 authMode: 'oauth',
               };
               localStorage.setItem('workflow_calendar_oauth', JSON.stringify(oauthData));
+
+              const calSettings = { calendarId };
+              localStorage.setItem('workflow_calendar_settings', JSON.stringify(calSettings));
 
               try {
                 setCalendarAuthStatus('connecting');
@@ -2085,85 +2181,175 @@ export default function Home() {
         {/* 중간 대시보드 통계 및 JQL 프리뷰 */}
         <div className="stats-and-jql-grid">
           {/* 통계 요약 카드 */}
-          <section className="stats-section card">
-            <div className="section-header">
-              <h3>티켓 상태 분포</h3>
+          <section className="stats-section card" style={{ display: 'flex', flexDirection: 'column' }}>
+            <div
+              className="section-header"
+              onClick={() => setIsStatsJqlOpen(!isStatsJqlOpen)}
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                cursor: 'pointer',
+                userSelect: 'none'
+              }}
+            >
+              <h3 style={{ margin: 0 }}>
+                티켓 상태 분포
+                {dateStart && dateEnd && (
+                  <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.45)', marginLeft: '0.5rem', fontWeight: 'normal' }}>
+                    ({dayjs(dateStart).format('YYYY.MM.DD')} ~ {dayjs(dateEnd).format('YYYY.MM.DD')})
+                  </span>
+                )}
+              </h3>
+              <button
+                type="button"
+                className="btn-toggle-stats"
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'rgba(255, 255, 255, 0.6)',
+                  cursor: 'pointer',
+                  padding: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  transition: 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+                  transform: isStatsJqlOpen ? 'rotate(0deg)' : 'rotate(180deg)'
+                }}
+              >
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="18 15 12 9 6 15"></polyline>
+                </svg>
+              </button>
             </div>
-            <div className="stats-content">
-              <div className="chart-container">
-                <div
-                  className="css-pie"
-                  style={{
-                    '--p-done': `${donePercent}%`,
-                    '--p-progress': `${progressPercent}%`,
-                    position: 'relative',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                  }}
-                >
+            <div
+              className="stats-slide-container"
+              style={{
+                maxHeight: isStatsJqlOpen ? '500px' : '0px',
+                opacity: isStatsJqlOpen ? 1 : 0,
+                overflow: 'hidden',
+                transition: 'max-height 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease-out',
+                marginTop: isStatsJqlOpen ? '1rem' : '0px'
+              }}
+            >
+              <div className="stats-content">
+                <div className="chart-container">
                   <div
-                    className="pie-center-hole"
+                    className="css-pie"
                     style={{
-                      width: '64%',
-                      height: '64%',
-                      borderRadius: '50%',
-                      background: '#0d0d1e',
-                      position: 'absolute',
+                      '--p-done': `${donePercent}%`,
+                      '--p-progress': `${progressPercent}%`,
+                      position: 'relative',
                       display: 'flex',
-                      flexDirection: 'column',
                       alignItems: 'center',
-                      justifyContent: 'center',
-                      boxShadow: 'inset 0 2px 6px rgba(0,0,0,0.6)',
-                      border: '1px solid rgba(255,255,255,0.06)',
-                      userSelect: 'none'
+                      justifyContent: 'center'
                     }}
                   >
-                    <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.5)', fontWeight: '500', transform: 'translateY(1px)' }}>완료율</span>
-                    <span style={{ fontSize: '1.05rem', color: '#10b981', fontWeight: '700', marginTop: '0px' }}>{donePercent}%</span>
+                    <div
+                      className="pie-center-hole"
+                      style={{
+                        width: '64%',
+                        height: '64%',
+                        borderRadius: '50%',
+                        background: '#0d0d1e',
+                        position: 'absolute',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        boxShadow: 'inset 0 2px 6px rgba(0,0,0,0.6)',
+                        border: '1px solid rgba(255,255,255,0.06)',
+                        userSelect: 'none'
+                      }}
+                    >
+                      <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.5)', fontWeight: '500', transform: 'translateY(1px)' }}>완료율</span>
+                      <span style={{ fontSize: '1.05rem', color: '#10b981', fontWeight: '700', marginTop: '0px' }}>{donePercent}%</span>
+                    </div>
+                  </div>
+                  <div className="chart-legend">
+                    <div className="legend-item">
+                      <span className="legend-color done"></span>
+                      <span>완료: {donePercent}% ({doneCount}건)</span>
+                    </div>
+                    <div className="legend-item">
+                      <span className="legend-color progress"></span>
+                      <span>진행 중: {progressPercent}% ({progressCount}건)</span>
+                    </div>
+                    <div className="legend-item">
+                      <span className="legend-color todo"></span>
+                      <span>대기 중: {todoPercent}% ({todoCount}건)</span>
+                    </div>
                   </div>
                 </div>
-                <div className="chart-legend">
-                  <div className="legend-item">
-                    <span className="legend-color done"></span>
-                    <span>완료: {donePercent}% ({doneCount}건)</span>
+                <div className="stats-numeric-grid">
+                  <div className="stat-card done">
+                    <span className="stat-label">완료 (Done)</span>
+                    <span className="stat-value">{doneCount}</span>
                   </div>
-                  <div className="legend-item">
-                    <span className="legend-color progress"></span>
-                    <span>진행 중: {progressPercent}% ({progressCount}건)</span>
+                  <div className="stat-card in-progress">
+                    <span className="stat-label">진행 중 (In Progress)</span>
+                    <span className="stat-value">{progressCount}</span>
                   </div>
-                  <div className="legend-item">
-                    <span className="legend-color todo"></span>
-                    <span>대기 중: {todoPercent}% ({todoCount}건)</span>
+                  <div className="stat-card total">
+                    <span className="stat-label">전체 티켓</span>
+                    <span className="stat-value">{totalCount}</span>
                   </div>
-                </div>
-              </div>
-              <div className="stats-numeric-grid">
-                <div className="stat-card done">
-                  <span className="stat-label">완료 (Done)</span>
-                  <span className="stat-value">{doneCount}</span>
-                </div>
-                <div className="stat-card in-progress">
-                  <span className="stat-label">진행 중 (In Progress)</span>
-                  <span className="stat-value">{progressCount}</span>
-                </div>
-                <div className="stat-card total">
-                  <span className="stat-label">전체 티켓</span>
-                  <span className="stat-value">{totalCount}</span>
                 </div>
               </div>
             </div>
           </section>
 
           {/* JQL 프리뷰 카드 */}
-          <section className="jql-section card">
-            <div className="section-header">
-              <h3>생성된 Jira JQL 쿼리</h3>
-              <button type="button" className="btn-text-copy" onClick={handleCopyJql}>JQL 복사</button>
+          <section className="jql-section card" style={{ display: 'flex', flexDirection: 'column' }}>
+            <div
+              className="section-header"
+              onClick={() => setIsStatsJqlOpen(!isStatsJqlOpen)}
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                cursor: 'pointer',
+                userSelect: 'none'
+              }}
+            >
+              <h3 style={{ margin: 0 }}>생성된 Jira JQL 쿼리</h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }} onClick={(e) => e.stopPropagation()}>
+                <button type="button" className="btn-text-copy" onClick={handleCopyJql}>JQL 복사</button>
+                <button
+                  type="button"
+                  className="btn-toggle-jql"
+                  onClick={() => setIsStatsJqlOpen(!isStatsJqlOpen)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'rgba(255, 255, 255, 0.6)',
+                    cursor: 'pointer',
+                    padding: '4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    transition: 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+                    transform: isStatsJqlOpen ? 'rotate(0deg)' : 'rotate(180deg)'
+                  }}
+                >
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="18 15 12 9 6 15"></polyline>
+                  </svg>
+                </button>
+              </div>
             </div>
-            <div className="jql-body">
-              <code>{activeTab === 'tab-analytics' ? getAnalyticsJql() : getJql()}</code>
-              <p className="jql-tip">Jira Cloud Advanced Search에 위 쿼리를 그대로 복사해 넣으셔도 조회 가능합니다.</p>
+            <div
+              className="jql-slide-container"
+              style={{
+                maxHeight: isStatsJqlOpen ? '300px' : '0px',
+                opacity: isStatsJqlOpen ? 1 : 0,
+                overflow: 'hidden',
+                transition: 'max-height 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease-out',
+                marginTop: isStatsJqlOpen ? '1rem' : '0px'
+              }}
+            >
+              <div className="jql-body">
+                <code>{activeTab === 'tab-analytics' ? getAnalyticsJql() : getJql()}</code>
+                <p className="jql-tip">Jira Cloud Advanced Search에 위 쿼리를 그대로 복사해 넣으셔도 조회 가능합니다.</p>
+              </div>
             </div>
           </section>
         </div>
@@ -2323,132 +2509,179 @@ export default function Home() {
                       <p>조회된 티켓 데이터가 없습니다. 상단 필터를 입력하고 조회를 먼저 진행해 주세요.</p>
                     </div>
                   ) : (
-                    getEpicScheduleData().map(epic => (
-                      <div key={epic.key} className="epic-schedule-card">
-                        <div className="epic-card-header">
-                          <div className="epic-title-group">
-                            <span className="epic-badge">{epic.key}</span>
-                            <h4 className="epic-summary">{epic.summary}</h4>
-                            {epic.startDate && epic.endDate && (
-                              <span className="epic-due-date-badge">
-                                📅 기간: {epic.startDate} ~ {epic.endDate}
-                              </span>
-                            )}
+                    getEpicScheduleData().map(epic => {
+                      const isExpanded = !!expandedEpics[epic.key];
+                      const isCollapsed = !isExpanded;
+                      return (
+                        <div key={epic.key} className="epic-schedule-card" style={{ display: 'flex', flexDirection: 'column' }}>
+                          <div
+                            className="epic-card-header"
+                            onClick={() => toggleEpicCollapse(epic.key)}
+                            style={{
+                              cursor: 'pointer',
+                              userSelect: 'none',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center'
+                            }}
+                          >
+                            <div className="epic-title-group">
+                              <span className="epic-badge">{epic.key}</span>
+                              <h4 className="epic-summary">{epic.summary}</h4>
+                              {epic.startDate && epic.endDate && (
+                                <span className="epic-due-date-badge">
+                                  📅 기간: {epic.startDate} ~ {epic.endDate}
+                                </span>
+                              )}
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }} onClick={(e) => e.stopPropagation()}>
+                              {/* 진행율 통계 요약 */}
+                              <div className="epic-stats-row">
+                                {epic.beProgress !== null && (
+                                  <div className="stat-badge be">
+                                    <span className="label">BE</span>
+                                    <span className="value">{epic.beProgress}% ({epic.beDoneCount}/{epic.beCount})</span>
+                                    <div className="mini-progress-bar">
+                                      <div className="fill" style={{ width: `${epic.beProgress}%` }}></div>
+                                    </div>
+                                  </div>
+                                )}
+                                {epic.feProgress !== null && (
+                                  <div className="stat-badge fe">
+                                    <span className="label">FE</span>
+                                    <span className="value">{epic.feProgress}% ({epic.feDoneCount}/{epic.feCount})</span>
+                                    <div className="mini-progress-bar">
+                                      <div className="fill" style={{ width: `${epic.feProgress}%` }}></div>
+                                    </div>
+                                  </div>
+                                )}
+                                {epic.moProgress !== null && (
+                                  <div className="stat-badge mo">
+                                    <span className="label">MO</span>
+                                    <span className="value">{epic.moProgress}% ({epic.moDoneCount}/{epic.moCount})</span>
+                                    <div className="mini-progress-bar">
+                                      <div className="fill" style={{ width: `${epic.moProgress}%` }}></div>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+
+                              <button
+                                type="button"
+                                className="btn-toggle-epic"
+                                onClick={() => toggleEpicCollapse(epic.key)}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  color: 'rgba(255, 255, 255, 0.6)',
+                                  cursor: 'pointer',
+                                  padding: '4px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  transition: 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+                                  transform: isCollapsed ? 'rotate(180deg)' : 'rotate(0deg)'
+                                }}
+                              >
+                                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <polyline points="18 15 12 9 6 15"></polyline>
+                                </svg>
+                              </button>
+                            </div>
                           </div>
 
-                          {/* 진행율 통계 요약 */}
-                          <div className="epic-stats-row">
-                            {epic.beProgress !== null && (
-                              <div className="stat-badge be">
-                                <span className="label">BE</span>
-                                <span className="value">{epic.beProgress}% ({epic.beDoneCount}/{epic.beCount})</span>
-                                <div className="mini-progress-bar">
-                                  <div className="fill" style={{ width: `${epic.beProgress}%` }}></div>
+                          <div
+                            className="epic-card-slide-container"
+                            style={{
+                              maxHeight: isCollapsed ? '0px' : '2000px',
+                              opacity: isCollapsed ? 0 : 1,
+                              overflow: 'hidden',
+                              transition: 'max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease-out'
+                            }}
+                          >
+                            <div className="epic-card-body">
+                              {/* BE 티켓 */}
+                              {epic.categorizedTickets.BE.length > 0 && (
+                                <div className="category-group">
+                                  <h5>💻 Backend 티켓 ({epic.categorizedTickets.BE.length})</h5>
+                                  <ul className="schedule-ticket-list">
+                                    {epic.categorizedTickets.BE.map(t => (
+                                      <li key={t.key} className="schedule-ticket-item">
+                                        <div className="ticket-key-assignee">
+                                          <span className="ticket-key-link" onClick={() => window.open(getTicketLink(t.key, url), '_blank')}>{t.key}</span>
+                                          <div className="ticket-meta">
+                                            <span className="assignee">👤 {t.assignee || '미지정'}</span>
+                                            <span className={`status-tag ${getStatusCategory(t.status).toLowerCase().replace(' ', '-')}`}>{t.status}</span>
+                                          </div>
+                                        </div>
+                                        <span className="ticket-summary-text">{t.summary}</span>
+                                      </li>
+                                    ))}
+                                  </ul>
                                 </div>
-                              </div>
-                            )}
-                            {epic.feProgress !== null && (
-                              <div className="stat-badge fe">
-                                <span className="label">FE</span>
-                                <span className="value">{epic.feProgress}% ({epic.feDoneCount}/{epic.feCount})</span>
-                                <div className="mini-progress-bar">
-                                  <div className="fill" style={{ width: `${epic.feProgress}%` }}></div>
+                              )}
+
+                              {/* FE 티켓 */}
+                              {epic.categorizedTickets.FE.length > 0 && (
+                                <div className="category-group">
+                                  <h5>🎨 Frontend 티켓 ({epic.categorizedTickets.FE.length})</h5>
+                                  <ul className="schedule-ticket-list">
+                                    {epic.categorizedTickets.FE.map(t => (
+                                      <li key={t.key} className="schedule-ticket-item">
+                                        <span className="ticket-key-link" onClick={() => window.open(getTicketLink(t.key, url), '_blank')}>{t.key}</span>
+                                        <span className="ticket-summary-text">{t.summary}</span>
+                                        <div className="ticket-meta">
+                                          <span className="assignee">👤 {t.assignee || '미지정'}</span>
+                                          <span className={`status-tag ${getStatusCategory(t.status).toLowerCase().replace(' ', '-')}`}>{t.status}</span>
+                                        </div>
+                                      </li>
+                                    ))}
+                                  </ul>
                                 </div>
-                              </div>
-                            )}
-                            {epic.moProgress !== null && (
-                              <div className="stat-badge mo">
-                                <span className="label">MO</span>
-                                <span className="value">{epic.moProgress}% ({epic.moDoneCount}/{epic.moCount})</span>
-                                <div className="mini-progress-bar">
-                                  <div className="fill" style={{ width: `${epic.moProgress}%` }}></div>
+                              )}
+
+                              {/* MO 티켓 */}
+                              {epic.categorizedTickets.MO.length > 0 && (
+                                <div className="category-group">
+                                  <h5>📱 Mobile 티켓 ({epic.categorizedTickets.MO.length})</h5>
+                                  <ul className="schedule-ticket-list">
+                                    {epic.categorizedTickets.MO.map(t => (
+                                      <li key={t.key} className="schedule-ticket-item">
+                                        <span className="ticket-key-link" onClick={() => window.open(getTicketLink(t.key, url), '_blank')}>{t.key}</span>
+                                        <span className="ticket-summary-text">{t.summary}</span>
+                                        <div className="ticket-meta">
+                                          <span className="assignee">👤 {t.assignee || '미지정'}</span>
+                                          <span className={`status-tag ${getStatusCategory(t.status).toLowerCase().replace(' ', '-')}`}>{t.status}</span>
+                                        </div>
+                                      </li>
+                                    ))}
+                                  </ul>
                                 </div>
-                              </div>
-                            )}
+                              )}
+
+                              {/* 기타 티켓 */}
+                              {epic.categorizedTickets.OTHER.length > 0 && (
+                                <div className="category-group">
+                                  <h5>📄 기타 티켓 ({epic.categorizedTickets.OTHER.length})</h5>
+                                  <ul className="schedule-ticket-list">
+                                    {epic.categorizedTickets.OTHER.map(t => (
+                                      <li key={t.key} className="schedule-ticket-item">
+                                        <span className="ticket-key-link" onClick={() => window.open(getTicketLink(t.key, url), '_blank')}>{t.key}</span>
+                                        <span className="ticket-summary-text">{t.summary}</span>
+                                        <div className="ticket-meta">
+                                          <span className="assignee">👤 {t.assignee || '미지정'}</span>
+                                          <span className={`status-tag ${getStatusCategory(t.status).toLowerCase().replace(' ', '-')}`}>{t.status}</span>
+                                        </div>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </div>
-
-                        <div className="epic-card-body">
-                          {/* BE 티켓 */}
-                          {epic.categorizedTickets.BE.length > 0 && (
-                            <div className="category-group">
-                              <h5>💻 Backend 티켓 ({epic.categorizedTickets.BE.length})</h5>
-                              <ul className="schedule-ticket-list">
-                                {epic.categorizedTickets.BE.map(t => (
-                                  <li key={t.key} className="schedule-ticket-item">
-                                    <div className="ticket-key-assignee">
-                                      <span className="ticket-key-link" onClick={() => window.open(getTicketLink(t.key, url), '_blank')}>{t.key}</span>
-                                      <div className="ticket-meta">
-                                        <span className="assignee">👤 {t.assignee || '미지정'}</span>
-                                        <span className={`status-tag ${getStatusCategory(t.status).toLowerCase().replace(' ', '-')}`}>{t.status}</span>
-                                      </div>
-                                    </div>
-                                    <span className="ticket-summary-text">{t.summary}</span>
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          )}
-
-                          {/* FE 티켓 */}
-                          {epic.categorizedTickets.FE.length > 0 && (
-                            <div className="category-group">
-                              <h5>🎨 Frontend 티켓 ({epic.categorizedTickets.FE.length})</h5>
-                              <ul className="schedule-ticket-list">
-                                {epic.categorizedTickets.FE.map(t => (
-                                  <li key={t.key} className="schedule-ticket-item">
-                                    <span className="ticket-key-link" onClick={() => window.open(getTicketLink(t.key, url), '_blank')}>{t.key}</span>
-                                    <span className="ticket-summary-text">{t.summary}</span>
-                                    <div className="ticket-meta">
-                                      <span className="assignee">👤 {t.assignee || '미지정'}</span>
-                                      <span className={`status-tag ${getStatusCategory(t.status).toLowerCase().replace(' ', '-')}`}>{t.status}</span>
-                                    </div>
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          )}
-
-                          {/* MO 티켓 */}
-                          {epic.categorizedTickets.MO.length > 0 && (
-                            <div className="category-group">
-                              <h5>📱 Mobile 티켓 ({epic.categorizedTickets.MO.length})</h5>
-                              <ul className="schedule-ticket-list">
-                                {epic.categorizedTickets.MO.map(t => (
-                                  <li key={t.key} className="schedule-ticket-item">
-                                    <span className="ticket-key-link" onClick={() => window.open(getTicketLink(t.key, url), '_blank')}>{t.key}</span>
-                                    <span className="ticket-summary-text">{t.summary}</span>
-                                    <div className="ticket-meta">
-                                      <span className="assignee">👤 {t.assignee || '미지정'}</span>
-                                      <span className={`status-tag ${getStatusCategory(t.status).toLowerCase().replace(' ', '-')}`}>{t.status}</span>
-                                    </div>
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          )}
-
-                          {/* 기타 티켓 */}
-                          {epic.categorizedTickets.OTHER.length > 0 && (
-                            <div className="category-group">
-                              <h5>📄 기타 티켓 ({epic.categorizedTickets.OTHER.length})</h5>
-                              <ul className="schedule-ticket-list">
-                                {epic.categorizedTickets.OTHER.map(t => (
-                                  <li key={t.key} className="schedule-ticket-item">
-                                    <span className="ticket-key-link" onClick={() => window.open(getTicketLink(t.key, url), '_blank')}>{t.key}</span>
-                                    <span className="ticket-summary-text">{t.summary}</span>
-                                    <div className="ticket-meta">
-                                      <span className="assignee">👤 {t.assignee || '미지정'}</span>
-                                      <span className={`status-tag ${getStatusCategory(t.status).toLowerCase().replace(' ', '-')}`}>{t.status}</span>
-                                    </div>
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </div>

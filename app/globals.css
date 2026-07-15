@@ -780,21 +780,25 @@ input:checked+.slider:before {
 }
 
 .markdown-preview p {
-  margin-bottom: 1rem;
-  font-size: 0.95rem;
+  font-size: 0.8125rem;
   color: var(--text-primary);
   line-height: 1.6;
+  text-indent: 1rem;
+}
+
+.markdown-preview p + ul {
+  margin-top: 10px;
 }
 
 .markdown-preview ul,
 .markdown-preview ol {
-  margin-bottom: 1.25rem;
+  margin-bottom: .5rem;
   padding-left: 1.5rem;
 }
 
 .markdown-preview li {
   margin-bottom: 0.4rem;
-  font-size: 0.95rem;
+  font-size: 0.8125rem;
   line-height: 1.5;
 }
 
@@ -1430,7 +1434,7 @@ input:checked+.slider:before {
 .epic-card-header {
   background: rgba(0, 0, 0, 0.25);
   border-bottom: 1px solid var(--border-color);
-  padding: 1.25rem 1.5rem;
+  padding: 1rem;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -1446,11 +1450,12 @@ input:checked+.slider:before {
 
 .epic-badge {
   background: var(--color-accent-gradient);
-  color: #0d1117;
-  font-size: 0.75rem;
+  color: #ffffff;
+  font-size: 0.8125rem;
   font-weight: 700;
-  padding: 0.25rem 0.6rem;
+  padding: 0.2rem 0.4rem;
   border-radius: 4px;
+  background-color: #4e88f9;
 }
 
 .epic-summary {
@@ -1579,8 +1584,8 @@ input:checked+.slider:before {
 }
 
 .schedule-ticket-item {
-  background: rgba(255, 255, 255, 0.01);
-  border: 1px solid rgba(255, 255, 255, 0.03);
+  background: rgba(255, 255, 255, 0.022);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 6px;
   padding: 0.4rem 0.85rem;
   font-size: 0.825rem;
