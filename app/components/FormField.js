@@ -54,7 +54,7 @@ export default function FormField({
           placeholder={placeholder}
           value={value}
           onChange={onChange}
-          className={inputClassName || undefined}
+          className={clsx(defaultInputClass, inputClassName)}
           {...controlProps}
         />
         {children}
