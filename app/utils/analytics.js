@@ -1,5 +1,5 @@
 import { groupBy, sumBy, meanBy, orderBy } from 'lodash';
-import { format, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths, differenceInDays, parseISO } from 'date-fns';
+import { format, startOfMonth, endOfMonth, eachMonthOfInterval, eachDayOfInterval, subMonths, differenceInDays, parseISO } from 'date-fns';
 
 /**
  * 담당자별 월별 실적 집계
@@ -81,6 +81,57 @@ export function analyzeMonthlyPerformance(tickets) {
 }
 
 /**
+ * 1개월 이하 기간인지 판별 (일별 차트 전환 기준)
+ */
+export function isDailyTrendRange(dateStart, dateEnd) {
+  if (!dateStart || !dateEnd) return false;
+  const start = parseISO(dateStart);
+  const end = parseISO(dateEnd);
+  if (end < start) return false;
+  return differenceInDays(end, start) + 1 <= 31;
+}
+
+/**
+ * 일별 시계열 차트용 데이터 생성 (1개월 이하 기간)
+ */
+export function generateDailyTimeSeriesData(tickets, dateStart, dateEnd) {
+  if (!tickets || tickets.length === 0 || !dateStart || !dateEnd) return [];
+
+  const chartStartDate = parseISO(dateStart);
+  const chartEndDate = parseISO(dateEnd);
+  const days = eachDayOfInterval({ start: chartStartDate, end: chartEndDate });
+  const allAssignees = [...new Set(tickets.map(t => t.assignee))];
+
+  return days.map(day => {
+    const dayKey = format(day, 'yyyy-MM-dd');
+    const dayLabel = format(day, 'MM.dd');
+
+    const dataPoint = {
+      period: dayLabel,
+      month: dayLabel,
+      periodKey: dayKey,
+      total: 0
+    };
+
+    allAssignees.forEach(assignee => {
+      const assigneeTickets = tickets.filter(t => {
+        if (t.assignee !== assignee) return false;
+        const dateStr = t.updated || t.created;
+        if (!dateStr) return false;
+        const ticketDay = dateStr.substring(0, 10);
+        return ticketDay === dayKey;
+      });
+
+      const completed = assigneeTickets.filter(t => getStatusCategory(t.status) === 'Done').length;
+      dataPoint[assignee] = completed;
+      dataPoint.total += completed;
+    });
+
+    return dataPoint;
+  });
+}
+
+/**
  * 시계열 차트용 데이터 생성
  * @param {Array} tickets - Jira 티켓 배열
  * @param {number} monthsBack - 조회할 과거 월 수 (dateStart/dateEnd가 없을 때 fallback)
@@ -113,6 +164,7 @@ export function generateTimeSeriesData(tickets, monthsBack = 6, dateStart, dateE
     const monthStr = format(month, 'yyyy년 MM월');
     
     const dataPoint = {
+      period: monthStr,
       month: monthStr,
       monthKey,
       total: 0
@@ -133,6 +185,22 @@ export function generateTimeSeriesData(tickets, monthsBack = 6, dateStart, dateE
     
     return dataPoint;
   });
+}
+
+/**
+ * 기간에 따라 일별/월별 시계열 데이터 자동 선택
+ */
+export function generateTrendTimeSeriesData(tickets, dateStart, dateEnd, monthsBack = 6) {
+  if (isDailyTrendRange(dateStart, dateEnd)) {
+    return {
+      granularity: 'day',
+      data: generateDailyTimeSeriesData(tickets, dateStart, dateEnd)
+    };
+  }
+  return {
+    granularity: 'month',
+    data: generateTimeSeriesData(tickets, monthsBack, dateStart, dateEnd)
+  };
 }
 
 /**

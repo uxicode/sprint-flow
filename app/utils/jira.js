@@ -228,8 +228,11 @@ export const TicketMarkdownRenderer = {
     const details = [];
     if (showStatus) details.push(`\`${ticket.status}\``);
     if (showUpdate) {
-      const formattedDate = ticket.duedate ? dayjs(ticket.duedate).format('YYYY.MM.DD') : dayjs().format('YYYY.MM.DD');
-      details.push(`기한: ${formattedDate}`);
+      const dueDate = ticket.duedate ? dayjs(ticket.duedate).format('YYYY.MM.DD') : dayjs().format('YYYY.MM.DD');
+      const updatedDate = ticket.updated ? dayjs(ticket.updated).format('YYYY.MM.DD') : '';
+      // 갱신일이 기한과 다르면 "기한 > 갱신일"로 심플하게 표시, 같으면 기한만
+      const dateStr = updatedDate && updatedDate !== dueDate ? `${dueDate} > 갱신일:${updatedDate}` : dueDate;
+      details.push(`기한: ${dateStr}`);
     }
     
     const detailsStr = details.length > 0 ? ` (${details.join(', ')})` : '';
@@ -279,8 +282,12 @@ export class DailyReportStrategy extends ReportStrategy {
     dailyMd += `> **보고 기간**: ${displayStart} ~ ${displayEnd}\n`;
     dailyMd += `> **생성 일시**: ${dayjs().format('YYYY.MM.DD HH:mm:ss')}\n\n`;
 
-    // 오늘 기한이거나 오늘 업데이트(작업)된 티켓들만 노출하도록 필터링
-    const dailyTickets = currList.filter(t => t.updated === todayStr || t.duedate === todayStr);
+    // 진행 중 티켓은 오늘 갱신 여부와 무관하게 항상 노출(현재 작업 현황),
+    // 그 외(완료 등)는 오늘 작업했거나 오늘 기한인 경우에만 노출
+    const dailyTickets = currList.filter(t => {
+      if (getStatusCategory(t.status) === 'In Progress') return true;
+      return t.updated === todayStr || t.duedate === todayStr;
+    });
 
     // 일일 담당자 목록 생성
     const members = [...new Set(dailyTickets.map(t => t.assignee))];
@@ -294,16 +301,21 @@ export class DailyReportStrategy extends ReportStrategy {
     } else {
       // 담당자 별로 티켓 목록 생성
       allDailyMembers.forEach(member => {
+        // 담당자 이름 표시
+        dailyMd += `## 👤 담당자: ${member}\n\n`;
+
         if (activeDailyVacations.includes(member)) {
-          dailyMd += `## 👤 담당자: ${member}\n\n`;
           const vacDates = getMemberVacationDates(rawEvents, member, todayStr, todayStr);
           const displayToday = dayjs(todayStr).format('YYYY.MM.DD');
-          dailyMd += `- 🏝️ ${vacDates || `연차 (${displayToday})`}\n\n---\n\n`;
-          return;
+          dailyMd += `- 🏝️ ${vacDates || `연차 (${displayToday})`}\n\n`;
+          // 반차/반반차/유연근무 등 반일 근무는 티켓도 함께 노출, 종일 휴가는 여기서 종료
+          const isPartialVacation = /반차|유연근무/.test(vacDates);
+          if (!isPartialVacation) {
+            dailyMd += `---\n\n`;
+            return;
+          }
         }
 
-        // 담당자 이름 표시 
-        dailyMd += `## 👤 담당자: ${member}\n\n`;
         // 담당자별 티켓 필터링
         const memberTickets = dailyTickets.filter(t => t.assignee === member);
 
@@ -322,7 +334,8 @@ export class DailyReportStrategy extends ReportStrategy {
           category: 'In Progress',
           title: '### 🔵 현재 진행 중인 업무 (In Progress)',
           emptyMessage: '진행 중인 업무가 없습니다.',
-          bullet: '- '
+          bullet: '- ',
+          showUpdate: true
         });
         dailyMd += `\n---\n\n`;
       });

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
+import clsx from 'clsx';
 import {
   LineChart,
   Line,
@@ -18,16 +19,64 @@ import {
 } from 'recharts';
 import {
   analyzeMonthlyPerformance,
-  generateTimeSeriesData,
+  generateTrendTimeSeriesData,
   generateInsights,
   generatePerformanceReport,
   generateCSV,
   predictNextMonth
 } from '../utils/analytics';
-import { format } from 'date-fns';
+import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns';
+import FormField from './FormField';
+import SummaryMetricCard from './SummaryMetricCard';
+import InsightsTicketSection from './InsightsTicketSection';
+
+const PERIOD_PRESET_MONTHS = [1, 3, 6, 12];
+
+/**
+ * 기간 프리셋 날짜 계산 함수
+ * @param {number} months - 개월 수
+ * @returns {Object} - 시작일과 종료일
+ */
+function getPeriodDates(months) {
+  const today = new Date();
+  const end = endOfMonth(today);
+  const start = startOfMonth(subMonths(today, months - 1));
+  return {
+    start: format(start, 'yyyy-MM-dd'),
+    end: format(end, 'yyyy-MM-dd'),
+  };
+}
+
+/**
+ * 기간 프리셋 감지 함수
+ * @param {string} dateStart - 시작일
+ * @param {string} dateEnd - 종료일
+ * @returns {number | 'custom'} - 기간 프리셋 값 또는 'custom'
+ */
+function detectPeriodPreset(dateStart, dateEnd) {
+  for (const months of PERIOD_PRESET_MONTHS) {
+    const { start, end } = getPeriodDates(months);
+    if (dateStart === start && dateEnd === end) return months;
+  }
+  return 'custom';
+}
 
 const COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#ef4444', '#14b8a6'];
 
+/**
+ * 성능 분석 컴포넌트
+ * @param {Object[]} tickets - 티켓 목록
+ * @param {string} projectKey - 프로젝트 키
+ * @param {Function} setProjectKey - 프로젝트 키 변경 핸들러
+ * @param {string} teamMembers - 팀원 목록
+ * @param {Function} setTeamMembers - 팀원 목록 변경 핸들러
+ * @param {string} dateStart - 시작일
+ * @param {string} dateEnd - 종료일
+ * @param {Function} setDateStart - 시작일 변경 핸들러
+ * @param {Function} setDateEnd - 종료일 변경 핸들러
+ * @param {Function} onFetch - 티켓 조회 핸들러
+ * @param {boolean} isLoading - 로딩 상태
+ */
 export default function PerformanceAnalytics({
   tickets,
   projectKey,
@@ -43,8 +92,14 @@ export default function PerformanceAnalytics({
 }) {
   const [viewMode, setViewMode] = useState('trend'); // 'trend' | 'comparison' | 'insights'
   const [chartType, setChartType] = useState('line'); // 'line' | 'bar'
-  const [timeRange, setTimeRange] = useState(6); // 몇 개월 볼지
+  const [periodPreset, setPeriodPreset] = useState(1); // 1 | 3 | 6 | 12 | 'custom'
   const [excludedTicketKeys, setExcludedTicketKeys] = useState(new Set());
+
+  // 시작/종료일과 프리셋 동기화
+  useEffect(() => {
+    if (!dateStart || !dateEnd) return;
+    setPeriodPreset(detectPeriodPreset(dateStart, dateEnd));
+  }, [dateStart, dateEnd]);
 
   // 티켓 데이터가 새로 조회되면 제외 목록 초기화
   useEffect(() => {
@@ -61,9 +116,12 @@ export default function PerformanceAnalytics({
     return analyzeMonthlyPerformance(activeTickets);
   }, [activeTickets]);
 
-  const timeSeriesData = useMemo(() => {
-    return generateTimeSeriesData(activeTickets, timeRange, dateStart, dateEnd);
-  }, [activeTickets, timeRange, dateStart, dateEnd]);
+  const trendSeries = useMemo(() => {
+    return generateTrendTimeSeriesData(activeTickets, dateStart, dateEnd);
+  }, [activeTickets, dateStart, dateEnd]);
+
+  const timeSeriesData = trendSeries.data;
+  const isDailyTrend = trendSeries.granularity === 'day';
 
   const insights = useMemo(() => {
     return generateInsights(activeTickets, analysis);
@@ -174,6 +232,15 @@ export default function PerformanceAnalytics({
       .catch(() => alert('복사 중 오류가 발생했습니다.'));
   };
 
+  const handlePeriodPresetChange = (value) => {
+    if (value === 'custom') return;
+    const months = Number(value);
+    const { start, end } = getPeriodDates(months);
+    setPeriodPreset(months);
+    setDateStart(start);
+    setDateEnd(end);
+  };
+
   return (
     <div className="analytics-container">
       {/* 헤더 & 컨트롤 */}
@@ -182,93 +249,78 @@ export default function PerformanceAnalytics({
           <h3>📊 담당자별 실적 분석</h3>
           <p>프로젝트: {projectKey} | 기간: {dateStart} ~ {dateEnd}</p>
         </div>
-        <div className="analytics-controls" style={{ flexWrap: 'wrap', gap: '0.5rem' }}>
-          {/* 프로젝트 키 & 팀원 입력 */}
-          <div className="control-group">
-            <label htmlFor="analytics-project-key">프로젝트:</label>
-            <input
-              type="text"
-              id="analytics-project-key"
-              value={projectKey}
-              onChange={(e) => setProjectKey(e.target.value)}
-              placeholder="예: DI26"
-              className="select-input"
-              style={{ width: '80px' }}
-            />
-          </div>
-          <div className="control-group">
-            <label htmlFor="analytics-team-members">팀원:</label>
-            <input
-              type="text"
-              id="analytics-team-members"
-              value={teamMembers}
-              onChange={(e) => setTeamMembers(e.target.value)}
-              placeholder="홍길동, 김철수"
-              className="select-input"
-              style={{ width: '200px' }}
-            />
-          </div>
+        <div className="analytics-controls">
+          <FormField
+            variant="control"
+            id="analytics-project-key"
+            label="프로젝트:"
+            value={projectKey}
+            onChange={(e) => setProjectKey(e.target.value)}
+            placeholder="예: DI26"
+            inputClassName="select-input--project"
+          />
+          <FormField
+            variant="control"
+            id="analytics-team-members"
+            label="팀원:"
+            value={teamMembers}
+            onChange={(e) => setTeamMembers(e.target.value)}
+            placeholder="홍길동, 김철수"
+            inputClassName="select-input--team"
+          />
 
-          <div style={{ width: '1px', height: '24px', backgroundColor: 'var(--border-color)', margin: '0 0.25rem' }}></div>
+          <div className="control-divider control-divider--narrow"></div>
 
-          {/* 기간 입력 */}
-          <div className="control-group">
-            <label htmlFor="analytics-date-start">시작일:</label>
-            <input
-              type="date"
-              id="analytics-date-start"
-              value={dateStart}
-              onChange={(e) => setDateStart(e.target.value)}
-              className="select-input"
-            />
-          </div>
-          <div className="control-group">
-            <label htmlFor="analytics-date-end">종료일:</label>
-            <input
-              type="date"
-              id="analytics-date-end"
-              value={dateEnd}
-              onChange={(e) => setDateEnd(e.target.value)}
-              className="select-input"
-            />
-          </div>
+          <FormField
+            variant="control"
+            id="analytics-date-start"
+            label="시작일:"
+            type="date"
+            value={dateStart}
+            onChange={(e) => setDateStart(e.target.value)}
+          />
+          <FormField
+            variant="control"
+            id="analytics-date-end"
+            label="종료일:"
+            type="date"
+            value={dateEnd}
+            onChange={(e) => setDateEnd(e.target.value)}
+          />
+          <FormField
+            variant="control"
+            as="select"
+            id="analytics-period-preset"
+            label="기간:"
+            value={periodPreset}
+            onChange={(e) => handlePeriodPresetChange(e.target.value)}
+          >
+            <option value={1}>1개월</option>
+            <option value={3}>최근 3개월</option>
+            <option value={6}>최근 6개월</option>
+            <option value={12}>최근 12개월</option>
+            {periodPreset === 'custom' && <option value="custom">직접 설정</option>}
+          </FormField>
           <button
             onClick={() => onFetch && onFetch(dateStart, dateEnd)}
             disabled={isLoading}
-            className="btn btn-primary"
-            style={{ padding: '0.5rem 1rem', fontSize: '0.85rem', height: '36px', display: 'flex', alignItems: 'center' }}
+            className="btn btn-primary btn-analytics-fetch"
           >
             {isLoading ? '조회 중...' : '조회'}
           </button>
 
-          <div style={{ width: '1px', height: '24px', backgroundColor: 'var(--border-color)', margin: '0 0.5rem' }}></div>
+          <div className="control-divider control-divider--wide"></div>
 
-          <div className="control-group">
-            <label>보기 모드:</label>
-            <select value={viewMode} onChange={(e) => setViewMode(e.target.value)} className="select-input">
-              <option value="trend">시계열 트렌드</option>
-              <option value="comparison">담당자 비교</option>
-              <option value="insights">인사이트 & 예측</option>
-            </select>
-          </div>
+          <FormField variant="control" as="select" label="보기 모드:" value={viewMode} onChange={(e) => setViewMode(e.target.value)}>
+            <option value="trend">시계열 트렌드</option>
+            <option value="comparison">담당자 비교</option>
+            <option value="insights">인사이트 & 예측</option>
+          </FormField>
           {viewMode === 'trend' && (
-            <>
-              <div className="control-group">
-                <label>차트 타입:</label>
-                <select value={chartType} onChange={(e) => setChartType(e.target.value)} className="select-input">
-                  <option value="line">라인 차트</option>
-                  <option value="bar">바 차트</option>
-                </select>
-              </div>
-              <div className="control-group">
-                <label>기간:</label>
-                <select value={timeRange} onChange={(e) => setTimeRange(Number(e.target.value))} className="select-input">
-                  <option value={3}>최근 3개월</option>
-                  <option value={6}>최근 6개월</option>
-                  <option value={12}>최근 12개월</option>
-                </select>
-              </div>
-            </>
+            <FormField variant="control" as="select" label="차트 타입:" value={chartType} onChange={(e) => setChartType(e.target.value)}>
+              <option value="line">라인 차트</option>
+              <option value="bar">바 차트</option>
+            </FormField>
           )}
         </div>
       </div>
@@ -290,52 +342,47 @@ export default function PerformanceAnalytics({
         <>
           {/* 요약 메트릭 카드 */}
           <div className="analytics-summary-cards">
-            <div className="summary-card">
-              <div className="card-info">
-                <span className="label">전체 수집 티켓</span>
-                <span className="value">{summaryStats.total}건</span>
-              </div>
-              <div className="card-icon">
+            <SummaryMetricCard
+              label="전체 수집 티켓"
+              value={`${summaryStats.total}건`}
+              icon={(
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
                 </svg>
-              </div>
-            </div>
-            <div className="summary-card success">
-              <div className="card-info">
-                <span className="label">완료한 티켓</span>
-                <span className="value">{summaryStats.completed}건</span>
-              </div>
-              <div className="card-icon">
+              )}
+            />
+            <SummaryMetricCard
+              label="완료한 티켓"
+              value={`${summaryStats.completed}건`}
+              variant="success"
+              icon={(
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <polyline points="20 6 9 17 4 12"></polyline>
                 </svg>
-              </div>
-            </div>
-            <div className="summary-card accent">
-              <div className="card-info">
-                <span className="label">진행 중인 업무</span>
-                <span className="value">{summaryStats.inProgress}건</span>
-              </div>
-              <div className="card-icon">
+              )}
+            />
+            <SummaryMetricCard
+              label="진행 중인 업무"
+              value={`${summaryStats.inProgress}건`}
+              variant="accent"
+              icon={(
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
                 </svg>
-              </div>
-            </div>
-            <div className="summary-card warning">
-              <div className="card-info">
-                <span className="label">팀 전체 완료율</span>
-                <span className="value">{summaryStats.completionRate}%</span>
-              </div>
-              <div className="card-icon">
+              )}
+            />
+            <SummaryMetricCard
+              label="팀 전체 완료율"
+              value={`${summaryStats.completionRate}%`}
+              variant="warning"
+              icon={(
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <line x1="18" y1="20" x2="18" y2="10"></line>
                   <line x1="12" y1="20" x2="12" y2="4"></line>
                   <line x1="6" y1="20" x2="6" y2="14"></line>
                 </svg>
-              </div>
-            </div>
+              )}
+            />
           </div>
 
           {/* 다운로드 버튼 */}
@@ -358,12 +405,19 @@ export default function PerformanceAnalytics({
           {viewMode === 'trend' && (
             <div className="analytics-content">
               <div className="chart-section card">
-                <h4>월별 완료 티켓 추이</h4>
+                <h4>{isDailyTrend ? '일별 완료 티켓 추이' : '월별 완료 티켓 추이'}</h4>
                 <ResponsiveContainer width="100%" height={400}>
                   {chartType === 'line' ? (
                     <LineChart data={timeSeriesData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-                      <XAxis dataKey="month" stroke="#888" />
+                      <XAxis
+                        dataKey="period"
+                        stroke="#888"
+                        interval={isDailyTrend ? 'preserveStartEnd' : 0}
+                        angle={isDailyTrend ? -35 : 0}
+                        textAnchor={isDailyTrend ? 'end' : 'middle'}
+                        height={isDailyTrend ? 56 : 30}
+                      />
                       <YAxis stroke="#888" />
                       <Tooltip
                         contentStyle={{ backgroundColor: '#1a1a2e', border: '1px solid #333', borderRadius: '8px' }}
@@ -385,7 +439,14 @@ export default function PerformanceAnalytics({
                   ) : (
                     <BarChart data={timeSeriesData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-                      <XAxis dataKey="month" stroke="#888" />
+                      <XAxis
+                        dataKey="period"
+                        stroke="#888"
+                        interval={isDailyTrend ? 'preserveStartEnd' : 0}
+                        angle={isDailyTrend ? -35 : 0}
+                        textAnchor={isDailyTrend ? 'end' : 'middle'}
+                        height={isDailyTrend ? 56 : 30}
+                      />
                       <YAxis stroke="#888" />
                       <Tooltip
                         contentStyle={{ backgroundColor: '#1a1a2e', border: '1px solid #333', borderRadius: '8px' }}
@@ -453,7 +514,7 @@ export default function PerformanceAnalytics({
                 </div>
 
                 {/* 담당자별 티켓 상태 누적 비교 (Stacked Bar Chart) */}
-                <div className="chart-section card" style={{ gridColumn: 'span 2' }}>
+                <div className="chart-section card chart-section--wide">
                   <h4>담당자별 티켓 상태 누적 비교</h4>
                   <ResponsiveContainer width="100%" height={300}>
                     <BarChart data={analysis.summary}>
@@ -494,7 +555,7 @@ export default function PerformanceAnalytics({
                       const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '';
                       return (
                         <tr key={member.assignee}>
-                          <td style={{ textAlign: 'center' }}>{medal} {rank}</td>
+                          <td className="table-rank-cell">{medal} {rank}</td>
                           <td><strong>{member.assignee}</strong></td>
                           <td>{member.completed}</td>
                           <td>{member.inProgress}</td>
@@ -505,7 +566,7 @@ export default function PerformanceAnalytics({
                               <div className="progress-bar-bg">
                                 <div
                                   className="progress-bar-fill"
-                                  style={{ width: `${member.completionRate}%` }}
+                                  style={{ '--progress': `${member.completionRate}%` }}
                                 ></div>
                               </div>
                               <span>{member.completionRate}%</span>
@@ -527,7 +588,7 @@ export default function PerformanceAnalytics({
               <div className="insights-section card">
                 <h4>🎯 자동 생성 인사이트</h4>
                 {excludedTicketKeys.size > 0 && (
-                  <p style={{ fontSize: '0.78rem', color: '#f59e0b', margin: '0 0 0.5rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <p className="insights-excluded-note">
                     ⚡ 현재 {excludedTicketKeys.size}건의 티켓이 제외되어 재계산된 결과입니다.
                   </p>
                 )}
@@ -539,72 +600,33 @@ export default function PerformanceAnalytics({
               </div>
 
               {/* MVP 담당자 전체 티켓 체크리스트 */}
-              {mvpMember && tickets && tickets.filter(t => t.assignee === mvpMember).length > 0 && (
-                <div className="insights-section card" style={{ marginTop: '1rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                    <h4 style={{ margin: 0 }}>🏆 MVP 후보: {mvpMember} — 티켓 상세</h4>
-                    <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.5)', background: 'rgba(16,185,129,0.1)', padding: '3px 10px', borderRadius: '12px' }}>
-                      {tickets.filter(t => t.assignee === mvpMember && !excludedTicketKeys.has(t.key)).length} / {tickets.filter(t => t.assignee === mvpMember).length}건 반영
-                    </span>
-                  </div>
-                  <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.4)', margin: '0 0 0.75rem' }}>
-                    체크 해제 시 해당 티켓이 실적 집계에서 제외되어 인사이트·차트·예측이 즉시 재계산됩니다.
-                  </p>
-                  <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '0.3rem', maxHeight: '320px', overflowY: 'auto', paddingRight: '4px' }}>
-                    {tickets.filter(t => t.assignee === mvpMember).map(t => {
-                      const isChecked = !excludedTicketKeys.has(t.key);
-                      const st = (t.status || '').toLowerCase();
-                      const isDone = st.includes('done') || st.includes('resolved') || st.includes('완료');
-                      const isInProg = st.includes('progress') || st.includes('진행');
-                      return (
-                        <li key={t.key} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.45rem 0.65rem', borderRadius: '6px', background: isChecked ? 'rgba(255,255,255,0.04)' : 'transparent', opacity: isChecked ? 1 : 0.4, transition: 'opacity 0.2s ease, background 0.2s ease', cursor: 'pointer' }} onClick={() => handleToggleTicket(t.key)}>
-                          <input type="checkbox" checked={isChecked} onChange={() => {}} style={{ accentColor: '#10b981', width: '15px', height: '15px', cursor: 'pointer', flexShrink: 0 }} />
-                          <span style={{ fontSize: '0.68rem', padding: '2px 7px', borderRadius: '4px', fontWeight: 600, background: isDone ? 'rgba(16,185,129,0.15)' : isInProg ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.08)', color: isDone ? '#10b981' : isInProg ? '#818cf8' : 'rgba(255,255,255,0.6)', flexShrink: 0, minWidth: '65px', textAlign: 'center' }}>{t.status}</span>
-                          <span style={{ fontSize: '0.82rem', color: isChecked ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.35)', flex: 1 }}>
-                            <strong>{t.key}</strong>: {t.summary}
-                            {t.epic && <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.3)', marginLeft: '0.4rem' }}>({t.epic.key})</span>}
-                          </span>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
+              {mvpMember && (
+                <InsightsTicketSection
+                  title={`🏆 MVP 후보: ${mvpMember} — 티켓 상세`}
+                  badgeVariant="success"
+                  includedCount={tickets.filter(t => t.assignee === mvpMember && !excludedTicketKeys.has(t.key)).length}
+                  totalCount={tickets.filter(t => t.assignee === mvpMember).length}
+                  tickets={tickets.filter(t => t.assignee === mvpMember)}
+                  excludedTicketKeys={excludedTicketKeys}
+                  checkboxVariant="success"
+                  onToggleTicket={handleToggleTicket}
+                />
               )}
 
-              {/* 진행중 티켓이 많은 담당자 전체 티켓 체크리스트 */}
               {wipMembers.filter(m => m !== mvpMember).map(member => {
                 const memberTickets = tickets.filter(t => t.assignee === member);
-                if (memberTickets.length === 0) return null;
                 return (
-                  <div key={member} className="insights-section card" style={{ marginTop: '1rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                      <h4 style={{ margin: 0 }}>⚠️ 고 WIP 담당자: {member} — 티켓 상세</h4>
-                      <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.5)', background: 'rgba(245,158,11,0.1)', padding: '3px 10px', borderRadius: '12px' }}>
-                        {memberTickets.filter(t => !excludedTicketKeys.has(t.key)).length} / {memberTickets.length}건 반영
-                      </span>
-                    </div>
-                    <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.4)', margin: '0 0 0.75rem' }}>
-                      체크 해제 시 해당 티켓이 실적 집계에서 제외되어 인사이트·차트·예측이 즉시 재계산됩니다.
-                    </p>
-                    <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '0.3rem', maxHeight: '320px', overflowY: 'auto', paddingRight: '4px' }}>
-                      {memberTickets.map(t => {
-                        const isChecked = !excludedTicketKeys.has(t.key);
-                        const st = (t.status || '').toLowerCase();
-                        const isDone = st.includes('done') || st.includes('resolved') || st.includes('완료');
-                        const isInProg = st.includes('progress') || st.includes('진행');
-                        return (
-                          <li key={t.key} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.45rem 0.65rem', borderRadius: '6px', background: isChecked ? 'rgba(255,255,255,0.04)' : 'transparent', opacity: isChecked ? 1 : 0.4, transition: 'opacity 0.2s ease, background 0.2s ease', cursor: 'pointer' }} onClick={() => handleToggleTicket(t.key)}>
-                            <input type="checkbox" checked={isChecked} onChange={() => {}} style={{ accentColor: '#f59e0b', width: '15px', height: '15px', cursor: 'pointer', flexShrink: 0 }} />
-                            <span style={{ fontSize: '0.68rem', padding: '2px 7px', borderRadius: '4px', fontWeight: 600, background: isDone ? 'rgba(16,185,129,0.15)' : isInProg ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.08)', color: isDone ? '#10b981' : isInProg ? '#818cf8' : 'rgba(255,255,255,0.6)', flexShrink: 0, minWidth: '65px', textAlign: 'center' }}>{t.status}</span>
-                            <span style={{ fontSize: '0.82rem', color: isChecked ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.35)', flex: 1 }}>
-                              <strong>{t.key}</strong>: {t.summary}
-                              {t.epic && <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.3)', marginLeft: '0.4rem' }}>({t.epic.key})</span>}
-                            </span>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </div>
+                  <InsightsTicketSection
+                    key={member}
+                    title={`⚠️ 고 WIP 담당자: ${member} — 티켓 상세`}
+                    badgeVariant="warning"
+                    includedCount={memberTickets.filter(t => !excludedTicketKeys.has(t.key)).length}
+                    totalCount={memberTickets.length}
+                    tickets={memberTickets}
+                    excludedTicketKeys={excludedTicketKeys}
+                    checkboxVariant="warning"
+                    onToggleTicket={handleToggleTicket}
+                  />
                 );
               })}
 
@@ -623,14 +645,13 @@ export default function PerformanceAnalytics({
                   <tbody>
                     {Object.keys(predictions).map(assignee => {
                       const pred = predictions[assignee];
-                      const confidenceColor = pred.confidence === 'high' ? '#10b981' : pred.confidence === 'medium' ? '#f59e0b' : '#ef4444';
                       const confidenceText = pred.confidence === 'high' ? '높음' : pred.confidence === 'medium' ? '중간' : '낮음';
                       return (
                         <tr key={assignee}>
                           <td><strong>{assignee}</strong></td>
                           <td>약 {pred.predicted}건</td>
                           <td>
-                            <span className="confidence-badge" style={{ backgroundColor: confidenceColor }}>
+                            <span className={clsx('confidence-badge', `confidence-badge--${pred.confidence}`)}>
                               {confidenceText}
                             </span>
                           </td>
