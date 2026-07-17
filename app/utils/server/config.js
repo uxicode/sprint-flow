@@ -1,0 +1,47 @@
+function parseList(value) {
+  if (!value) return [];
+  return value.split(',').map(s => s.trim()).filter(Boolean);
+}
+
+function requireEnv(name) {
+  const value = process.env[name];
+  if (!value?.trim()) {
+    throw new Error(`필수 환경 변수 ${name}이(가) 설정되지 않았습니다.`);
+  }
+  return value.trim();
+}
+
+export function getCronConfig() {
+  const teamMembers = process.env.TEAM_MEMBERS?.trim() || '';
+  const registeredMembers = parseList(process.env.REGISTERED_MEMBERS);
+  const fallbackMembers = parseList(teamMembers);
+
+  return {
+    timezone: process.env.CRON_TIMEZONE?.trim() || 'Asia/Seoul',
+    jiraUrl: requireEnv('JIRA_URL'),
+    jiraEmail: requireEnv('JIRA_EMAIL'),
+    jiraToken: requireEnv('JIRA_API_TOKEN'),
+    confluenceSpace: requireEnv('CONFLUENCE_SPACE'),
+    confluenceParentId: process.env.CONFLUENCE_PARENT_ID?.trim() || '',
+    projectKey: process.env.PROJECT_KEY?.trim() || 'DI26',
+    teamMembers,
+    registeredMembers: registeredMembers.length > 0 ? registeredMembers : fallbackMembers,
+    calendarId: process.env.CALENDAR_ID?.trim() || '',
+    googleClientId: process.env.GOOGLE_CLIENT_ID?.trim() || '',
+    googleClientSecret: process.env.GOOGLE_CLIENT_SECRET?.trim() || '',
+    googleRefreshToken: process.env.GOOGLE_REFRESH_TOKEN?.trim() || '',
+    googleAccessToken: process.env.GOOGLE_ACCESS_TOKEN?.trim() || '',
+  };
+}
+
+export function validateCronConfig(config) {
+  const missing = [];
+  if (!config.jiraUrl) missing.push('JIRA_URL');
+  if (!config.jiraEmail) missing.push('JIRA_EMAIL');
+  if (!config.jiraToken) missing.push('JIRA_API_TOKEN');
+  if (!config.confluenceSpace) missing.push('CONFLUENCE_SPACE');
+  if (!config.teamMembers) missing.push('TEAM_MEMBERS');
+  if (missing.length > 0) {
+    throw new Error(`Cron 설정 누락: ${missing.join(', ')}`);
+  }
+}
