@@ -25,6 +25,7 @@ import {
   generateCSV,
   predictNextMonth,
   filterTicketsByDateRange,
+  sumChartCompletedTotal,
 } from '../utils/analytics';
 import { buildAnalyticsJql } from '../utils/jqlHelpers';
 import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns';
@@ -133,6 +134,10 @@ export default function PerformanceAnalytics({
 
   const timeSeriesData = trendSeries.data;
   const isDailyTrend = trendSeries.granularity === 'day';
+  const chartCompletedTotal = useMemo(
+    () => sumChartCompletedTotal(timeSeriesData),
+    [timeSeriesData]
+  );
 
   const insights = useMemo(() => {
     return generateInsights(activeTickets, analysis);
@@ -364,6 +369,7 @@ export default function PerformanceAnalytics({
             <SummaryMetricCard
               label="전체 수집 티켓"
               value={`${summaryStats.total}건`}
+              hint="기간 내 활동(updated) 티켓 전체"
               icon={(
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
@@ -374,6 +380,7 @@ export default function PerformanceAnalytics({
               label="완료한 티켓"
               value={`${summaryStats.completed}건`}
               variant="success"
+              hint={`차트 합계 ${chartCompletedTotal}건`}
               icon={(
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <polyline points="20 6 9 17 4 12"></polyline>
@@ -425,6 +432,9 @@ export default function PerformanceAnalytics({
             <div className="analytics-content">
               <div className="chart-section card">
                 <h4>{isDailyTrend ? '일별 완료 티켓 추이' : '월별 완료 티켓 추이'}</h4>
+                <p className="chart-section-note">
+                  완료(Done) 상태만 집계합니다. 전체 수집({summaryStats.total}건) = 완료 + 진행 중 + 대기.
+                </p>
                 <ResponsiveContainer width="100%" height={400}>
                   {chartType === 'line' ? (
                     <LineChart data={timeSeriesData}>

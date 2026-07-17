@@ -185,12 +185,13 @@ export function generateTimeSeriesData(tickets, monthsBack = 6, dateStart, dateE
     
     allAssignees.forEach(assignee => {
       const assigneeTickets = tickets.filter(t => {
-        const dateStr = t.created || t.updated;
+        if (t.assignee !== assignee) return false;
+        const dateStr = t.updated || t.created;
         if (!dateStr) return false;
         const ticketMonth = format(parseISO(dateStr), 'yyyy-MM');
-        return ticketMonth === monthKey && t.assignee === assignee;
+        return ticketMonth === monthKey;
       });
-      
+
       const completed = assigneeTickets.filter(t => getStatusCategory(t.status) === 'Done').length;
       dataPoint[assignee] = completed;
       dataPoint.total += completed;
@@ -198,6 +199,14 @@ export function generateTimeSeriesData(tickets, monthsBack = 6, dateStart, dateE
     
     return dataPoint;
   });
+}
+
+/**
+ * 차트에 표시된 완료 티켓 합계 (월별/일별 total 합)
+ */
+export function sumChartCompletedTotal(timeSeriesData) {
+  if (!timeSeriesData?.length) return 0;
+  return timeSeriesData.reduce((sum, point) => sum + (point.total || 0), 0);
 }
 
 /**
