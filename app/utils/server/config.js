@@ -11,6 +11,39 @@ function requireEnv(name) {
   return value.trim();
 }
 
+export function getAppConfig() {
+  const teamMembers = process.env.TEAM_MEMBERS?.trim() || '';
+  const registeredMembers = parseList(process.env.REGISTERED_MEMBERS);
+  const fallbackMembers = parseList(teamMembers);
+
+  const jiraUrl = process.env.JIRA_URL?.trim() || '';
+  const jiraEmail = process.env.JIRA_EMAIL?.trim() || '';
+  const jiraToken = process.env.JIRA_API_TOKEN?.trim() || '';
+  const calendarId = process.env.CALENDAR_ID?.trim() || '';
+  const googleClientId = process.env.GOOGLE_CLIENT_ID?.trim() || '';
+  const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim() || '';
+  const googleRefreshToken = process.env.GOOGLE_REFRESH_TOKEN?.trim() || '';
+  const googleAccessToken = process.env.GOOGLE_ACCESS_TOKEN?.trim() || '';
+
+  return {
+    jiraUrl,
+    jiraEmail,
+    jiraToken,
+    confluenceSpace: process.env.CONFLUENCE_SPACE?.trim() || '',
+    confluenceParentId: process.env.CONFLUENCE_PARENT_ID?.trim() || '',
+    projectKey: process.env.PROJECT_KEY?.trim() || '',
+    teamMembers,
+    registeredMembers: registeredMembers.length > 0 ? registeredMembers : fallbackMembers,
+    calendarId,
+    googleClientId,
+    googleClientSecret,
+    googleRefreshToken,
+    googleAccessToken,
+    hasJiraCredentials: !!(jiraUrl && jiraEmail && jiraToken),
+    hasCalendarCredentials: !!(calendarId && googleClientId && googleClientSecret && googleRefreshToken),
+  };
+}
+
 export function getCronConfig() {
   const teamMembers = process.env.TEAM_MEMBERS?.trim() || '';
   const registeredMembers = parseList(process.env.REGISTERED_MEMBERS);

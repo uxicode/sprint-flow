@@ -16,10 +16,12 @@ import { buildJql, buildNextWeekJql, buildScheduleJql } from '../utils/jqlHelper
 import { parseMarkdownToHtml } from '../utils/markdown';
 import { buildEpicScheduleData, buildGanttData } from '../utils/schedule';
 import { buildWeeklyDownloadMarkdown } from '../utils/reportDownload';
+import { resolveAppSettings } from '../utils/resolveAppSettings';
 
 export function useSprintFlow() {
   // SSR 하이드레이션 보호용 마운트 상태
   const [mounted, setMounted] = useState(false);
+  const [isConfigLoaded, setIsConfigLoaded] = useState(false);
 
   // Jira API 설정 상태
   const [url, setUrl] = useState('');
@@ -139,192 +141,211 @@ export function useSprintFlow() {
   useEffect(() => {
     setMounted(true);
 
-    // 날짜 디폴트 계산: 이번 주 월요일 ~ 이번 주 금요일 (dayjs 사용)
     const today = dayjs();
     const mondayStr = today.day() === 0 ? today.subtract(6, 'day').format('YYYY-MM-DD') : today.day(1).format('YYYY-MM-DD');
     const fridayStr = today.day() === 0 ? today.subtract(2, 'day').format('YYYY-MM-DD') : today.day(5).format('YYYY-MM-DD');
-    
+
     setDateStart(mondayStr);
     setDateEnd(fridayStr);
-
-    // 실적 분석 디폴트 기간 설정: 오늘이 포함된 달 기준 1개월
     setAnalyticsDateStart(today.startOf('month').format('YYYY-MM-DD'));
     setAnalyticsDateEnd(today.endOf('month').format('YYYY-MM-DD'));
 
-    // 1-1. 지라 API 설정 복구
-    const savedSettings = localStorage.getItem('workflow_jira_settings');
-    let currentApiMode = false;
-    let activeUrl = '';
-    let activeEmail = '';
-    let activeToken = '';
-    if (savedSettings) {
-      try {
-        const parsed = JSON.parse(savedSettings);
-        setUrl(parsed.url || '');
-        setEmail(parsed.email || '');
-        setToken(parsed.token || '');
-        setConfluenceSpace(parsed.confluenceSpace || '');
-        setConfluenceParentId(parsed.confluenceParentId || '');
-        setApiMode(parsed.apiMode || false);
-        currentApiMode = parsed.apiMode || false;
-        activeUrl = parsed.url || '';
-        activeEmail = parsed.email || '';
-        activeToken = parsed.token || '';
-      } catch (e) {
-        console.error('설정을 복구하는 중 오류 발생:', e);
-      }
-    }
+    let cancelled = false;
 
-    // 1-1-B. 구글 캘린더 설정 복구
-    const savedCalendar = localStorage.getItem('workflow_calendar_settings');
-    let activeCalendarId = '';
-    if (savedCalendar) {
-      try {
-        const parsed = JSON.parse(savedCalendar);
-        setCalendarId(parsed.calendarId || '');
-        activeCalendarId = parsed.calendarId || '';
-      } catch (e) {
-        console.error('캘린더 설정을 복구하는 중 오류 발생:', e);
-      }
-    }
+    async function bootstrapApp() {
+      const localSettings = {
+        url: '',
+        email: '',
+        token: '',
+        confluenceSpace: '',
+        confluenceParentId: '',
+        apiMode: false,
+        calendarId: '',
+        calendarClientId: '',
+        calendarClientSecret: '',
+        calendarAccessToken: '',
+        calendarRefreshToken: '',
+        projectKey: 'DI26',
+        teamMembers: '',
+        registeredMembers: [],
+      };
 
-    // 1-1-C. Google Calendar OAuth 설정 복구
-    const savedOAuth = localStorage.getItem('workflow_calendar_oauth');
-    let activeCalendarClientId = '';
-    let activeCalendarClientSecret = '';
-    let activeCalendarAccessToken = '';
-    let activeCalendarRefreshToken = '';
-    if (savedOAuth) {
-      try {
-        const parsed = JSON.parse(savedOAuth);
-        setCalendarClientId(parsed.clientId || '');
-        setCalendarClientSecret(parsed.clientSecret || '');
-        activeCalendarClientId = parsed.clientId || '';
-        activeCalendarClientSecret = parsed.clientSecret || '';
-        if (parsed.accessToken) {
-          setCalendarAccessToken(parsed.accessToken);
-          activeCalendarAccessToken = parsed.accessToken;
+      const savedSettings = localStorage.getItem('workflow_jira_settings');
+      if (savedSettings) {
+        try {
+          const parsed = JSON.parse(savedSettings);
+          localSettings.url = parsed.url || '';
+          localSettings.email = parsed.email || '';
+          localSettings.token = parsed.token || '';
+          localSettings.confluenceSpace = parsed.confluenceSpace || '';
+          localSettings.confluenceParentId = parsed.confluenceParentId || '';
+          localSettings.apiMode = parsed.apiMode || false;
+        } catch (e) {
+          console.error('설정을 복구하는 중 오류 발생:', e);
         }
-        if (parsed.refreshToken) {
-          setCalendarRefreshToken(parsed.refreshToken);
-          activeCalendarRefreshToken = parsed.refreshToken;
-        }
-        // 토큰이 존재하면 연동 완료 상태로
-        if (parsed.accessToken || parsed.refreshToken) {
-          setCalendarAuthStatus('connected');
-        }
-      } catch (e) {
-        console.error('OAuth 캘린더 설정 복구 중 오류:', e);
-      }
-    }
-
-    // 1-1-D. OAuth 콜백 처리 (Google 로그인 후 리디렉트)
-    const urlParams = new URLSearchParams(window.location.search);
-    const calendarAuth = urlParams.get('calendar_auth');
-    const calendarCode = urlParams.get('calendar_code');
-    const urlCalendarId = urlParams.get('calendar_id');
-
-    if (calendarAuth === 'success' && calendarCode) {
-      // 리디렉트 파라미터에 포함되어 돌아온 calendar_id가 있다면 복구 및 저장
-      if (urlCalendarId) {
-        setCalendarId(urlCalendarId);
-        activeCalendarId = urlCalendarId;
-        localStorage.setItem('workflow_calendar_settings', JSON.stringify({ calendarId: urlCalendarId }));
       }
 
-      // URL에서 파라미터들을 안전하게 제거하여 깨끗한 URL 유지
-      const cleanUrl = new URL(window.location);
-      cleanUrl.searchParams.delete('calendar_auth');
-      cleanUrl.searchParams.delete('calendar_code');
-      cleanUrl.searchParams.delete('calendar_id');
-      window.history.replaceState({}, '', cleanUrl);
+      const savedCalendar = localStorage.getItem('workflow_calendar_settings');
+      if (savedCalendar) {
+        try {
+          const parsed = JSON.parse(savedCalendar);
+          localSettings.calendarId = parsed.calendarId || '';
+        } catch (e) {
+          console.error('캘린더 설정을 복구하는 중 오류 발생:', e);
+        }
+      }
 
-      // 토큰 교환 실행
-      const cId = activeCalendarClientId;
-      const cSecret = activeCalendarClientSecret;
-      if (cId && cSecret) {
-        handleOAuthCallback(calendarCode, cId, cSecret);
+      const savedOAuth = localStorage.getItem('workflow_calendar_oauth');
+      if (savedOAuth) {
+        try {
+          const parsed = JSON.parse(savedOAuth);
+          localSettings.calendarClientId = parsed.clientId || '';
+          localSettings.calendarClientSecret = parsed.clientSecret || '';
+          localSettings.calendarAccessToken = parsed.accessToken || '';
+          localSettings.calendarRefreshToken = parsed.refreshToken || '';
+        } catch (e) {
+          console.error('OAuth 캘린더 설정 복구 중 오류:', e);
+        }
+      }
+
+      const savedMembers = localStorage.getItem('workflow_registered_members');
+      if (savedMembers) {
+        try {
+          localSettings.registeredMembers = JSON.parse(savedMembers);
+        } catch (e) {
+          console.error('팀원 목록 복구 중 오류 발생:', e);
+        }
       } else {
-        alert('OAuth Client ID / Secret이 저장되어 있지 않습니다. 먼저 설정을 저장해 주세요.');
+        localStorage.setItem('workflow_registered_members', JSON.stringify([]));
       }
-    } else if (calendarAuth === 'denied') {
-      const cleanUrl = new URL(window.location);
-      cleanUrl.searchParams.delete('calendar_auth');
-      cleanUrl.searchParams.delete('calendar_error');
-      window.history.replaceState({}, '', cleanUrl);
-      alert('Google Calendar 인증이 거부되었습니다.');
-    } else if (calendarAuth === 'error') {
-      const calendarError = urlParams.get('calendar_error');
-      const cleanUrl = new URL(window.location);
-      cleanUrl.searchParams.delete('calendar_auth');
-      cleanUrl.searchParams.delete('calendar_error');
-      window.history.replaceState({}, '', cleanUrl);
-      alert(`Google Calendar 인증 오류: ${calendarError || '알 수 없는 오류'}`);
-    }
 
-    // 1-2. 등록된 팀원 목록 복구
-    const savedMembers = localStorage.getItem('workflow_registered_members');
-    let activeRegisteredMembers = [];
-    if (savedMembers) {
+      const savedFilterMembers = localStorage.getItem('workflow_filter_members');
+      if (savedFilterMembers !== null) {
+        localSettings.teamMembers = savedFilterMembers;
+      }
+
+      const savedProjectKey = localStorage.getItem('workflow_project_key');
+      if (savedProjectKey !== null) {
+        localSettings.projectKey = savedProjectKey;
+      }
+
+      let envConfig = null;
       try {
-        const parsed = JSON.parse(savedMembers);
-        setRegisteredMembers(parsed);
-        activeRegisteredMembers = parsed;
+        const response = await fetch('/api/app-config');
+        if (response.ok) {
+          envConfig = await response.json();
+        }
       } catch (e) {
-        console.error('팀원 목록 복구 중 오류 발생:', e);
+        console.warn('[AppConfig] 서버 env 설정을 불러오지 못했습니다:', e);
       }
-    } else {
-      localStorage.setItem('workflow_registered_members', JSON.stringify([]));
+
+      if (cancelled) return;
+
+      const resolved = resolveAppSettings(localSettings, envConfig);
+
+      setUrl(resolved.url);
+      setEmail(resolved.email);
+      setToken(resolved.token);
+      setConfluenceSpace(resolved.confluenceSpace);
+      setConfluenceParentId(resolved.confluenceParentId);
+      setCalendarId(resolved.calendarId);
+      setCalendarClientId(resolved.calendarClientId);
+      setCalendarClientSecret(resolved.calendarClientSecret);
+      setCalendarAccessToken(resolved.calendarAccessToken);
+      setCalendarRefreshToken(resolved.calendarRefreshToken);
+      setProjectKey(resolved.projectKey);
+      setTeamMembers(resolved.teamMembers);
+      setRegisteredMembers(resolved.registeredMembers);
+      setApiMode(resolved.apiMode);
+
+      if (resolved.hasCalendarCredentials) {
+        setCalendarAuthStatus('connected');
+      }
+
+      if (resolved.fromEnv) {
+        console.log('[AppConfig] 서버 환경 변수로 설정이 적용되었습니다.');
+        setConnectionStatus({ dot: 'success', text: '환경 변수 설정 적용됨 — Jira API 대기 중' });
+      } else if (resolved.apiMode) {
+        setConnectionStatus({ dot: 'success', text: 'Jira API 대기 중' });
+      } else {
+        setConnectionStatus({ dot: 'accent', text: '시뮬레이션 모드 작동 중' });
+      }
+
+      // OAuth 콜백 처리 (Google 로그인 후 리디렉트)
+      const urlParams = new URLSearchParams(window.location.search);
+      const calendarAuth = urlParams.get('calendar_auth');
+      const calendarCode = urlParams.get('calendar_code');
+      const urlCalendarId = urlParams.get('calendar_id');
+
+      if (calendarAuth === 'success' && calendarCode) {
+        let activeCalendarId = resolved.calendarId;
+        if (urlCalendarId) {
+          setCalendarId(urlCalendarId);
+          activeCalendarId = urlCalendarId;
+          localStorage.setItem('workflow_calendar_settings', JSON.stringify({ calendarId: urlCalendarId }));
+        }
+
+        const cleanUrl = new URL(window.location);
+        cleanUrl.searchParams.delete('calendar_auth');
+        cleanUrl.searchParams.delete('calendar_code');
+        cleanUrl.searchParams.delete('calendar_id');
+        window.history.replaceState({}, '', cleanUrl);
+
+        const cId = resolved.calendarClientId;
+        const cSecret = resolved.calendarClientSecret;
+        if (cId && cSecret) {
+          handleOAuthCallback(calendarCode, cId, cSecret);
+        } else {
+          alert('OAuth Client ID / Secret이 저장되어 있지 않습니다. 먼저 설정을 저장해 주세요.');
+        }
+      } else if (calendarAuth === 'denied') {
+        const cleanUrl = new URL(window.location);
+        cleanUrl.searchParams.delete('calendar_auth');
+        cleanUrl.searchParams.delete('calendar_error');
+        window.history.replaceState({}, '', cleanUrl);
+        alert('Google Calendar 인증이 거부되었습니다.');
+      } else if (calendarAuth === 'error') {
+        const calendarError = urlParams.get('calendar_error');
+        const cleanUrl = new URL(window.location);
+        cleanUrl.searchParams.delete('calendar_auth');
+        cleanUrl.searchParams.delete('calendar_error');
+        window.history.replaceState({}, '', cleanUrl);
+        alert(`Google Calendar 인증 오류: ${calendarError || '알 수 없는 오류'}`);
+      }
+
+      setIsConfigLoaded(true);
+      setIsAnalyticsLoaded(false);
+
+      triggerInitialFetch({
+        apiMode: resolved.apiMode,
+        projectKey: resolved.projectKey,
+        teamMembers: resolved.teamMembers,
+        start: mondayStr,
+        end: fridayStr,
+        url: resolved.url,
+        email: resolved.email,
+        token: resolved.token,
+        calendarId: resolved.calendarId,
+        accessToken: resolved.calendarAccessToken,
+        refreshToken: resolved.calendarRefreshToken,
+        clientId: resolved.calendarClientId,
+        clientSecret: resolved.calendarClientSecret,
+        registeredMembers: resolved.registeredMembers,
+      });
     }
 
-    // 1-3. 대상 팀원 필터 설정값 복구
-    const savedFilterMembers = localStorage.getItem('workflow_filter_members');
-    let activeFilterMembers = '';
-    if (savedFilterMembers !== null) {
-      setTeamMembers(savedFilterMembers);
-      activeFilterMembers = savedFilterMembers;
-    }
+    bootstrapApp();
 
-    // 1-4. 프로젝트 키 복구
-    const savedProjectKey = localStorage.getItem('workflow_project_key');
-    let activeProjectKey = 'DI26';
-    if (savedProjectKey !== null) {
-      setProjectKey(savedProjectKey);
-      activeProjectKey = savedProjectKey;
-    }
-
-    // 초기 상태 UI 동기화
-    if (currentApiMode) {
-      setConnectionStatus({ dot: 'success', text: 'Jira API 대기 중' });
-    } else {
-      setConnectionStatus({ dot: 'accent', text: '시뮬레이션 모드 작동 중' });
-    }
-
-    // 첫 실행 시 자동 로드
-    // state 업데이트 비동기를 우회하기 위해 로컬 변수로 즉석 전달
-    triggerInitialFetch({
-      apiMode: currentApiMode,
-      projectKey: activeProjectKey,
-      teamMembers: activeFilterMembers,
-      start: mondayStr,
-      end: fridayStr,
-      url: activeUrl,
-      email: activeEmail,
-      token: activeToken,
-      calendarId: activeCalendarId,
-      accessToken: activeCalendarAccessToken,
-      refreshToken: activeCalendarRefreshToken,
-      clientId: activeCalendarClientId,
-      clientSecret: activeCalendarClientSecret,
-      registeredMembers: activeRegisteredMembers
-    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // 실적 분석 영역(티켓 상태 분포) 초기 데이터 로드
   useEffect(() => {
-    if (!mounted || !isStatsJqlOpen || !analyticsDateStart || !analyticsDateEnd) return;
+    if (!mounted || !isConfigLoaded || !isStatsJqlOpen || !analyticsDateStart || !analyticsDateEnd) return;
     lazyLoadAnalyticsTickets();
-  }, [mounted, isStatsJqlOpen, analyticsDateStart, analyticsDateEnd]);
+  }, [mounted, isConfigLoaded, isStatsJqlOpen, analyticsDateStart, analyticsDateEnd]);
 
   // --------------------------------------------------------------------------
   // 2. JQL 빌더 계산 함수
