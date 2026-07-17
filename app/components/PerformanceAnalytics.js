@@ -23,8 +23,10 @@ import {
   generateInsights,
   generatePerformanceReport,
   generateCSV,
-  predictNextMonth
+  predictNextMonth,
+  filterTicketsByDateRange,
 } from '../utils/analytics';
+import { buildAnalyticsJql } from '../utils/jqlHelpers';
 import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import FormField from './FormField';
 import SummaryMetricCard from './SummaryMetricCard';
@@ -101,16 +103,25 @@ export default function PerformanceAnalytics({
     setPeriodPreset(detectPeriodPreset(dateStart, dateEnd));
   }, [dateStart, dateEnd]);
 
+  // 선택 기간 내 티켓만 집계 (JQL 보조 필터)
+  const periodTickets = useMemo(() => {
+    return filterTicketsByDateRange(tickets, dateStart, dateEnd);
+  }, [tickets, dateStart, dateEnd]);
+
   // 티켓 데이터가 새로 조회되면 제외 목록 초기화
   useEffect(() => {
     setExcludedTicketKeys(new Set());
-  }, [tickets]);
+  }, [periodTickets]);
 
   // 체크박스에서 제외된 티켓을 필터링한 활성 티켓 목록
   const activeTickets = useMemo(() => {
-    if (!tickets || tickets.length === 0) return [];
-    return tickets.filter(t => !excludedTicketKeys.has(t.key));
-  }, [tickets, excludedTicketKeys]);
+    if (!periodTickets || periodTickets.length === 0) return [];
+    return periodTickets.filter(t => !excludedTicketKeys.has(t.key));
+  }, [periodTickets, excludedTicketKeys]);
+
+  const analyticsJql = useMemo(() => {
+    return buildAnalyticsJql(projectKey, teamMembers, dateStart, dateEnd);
+  }, [projectKey, teamMembers, dateStart, dateEnd]);
 
   const analysis = useMemo(() => {
     return analyzeMonthlyPerformance(activeTickets);
@@ -131,6 +142,13 @@ export default function PerformanceAnalytics({
     return predictNextMonth(activeTickets);
   }, [activeTickets]);
 
+  // useMemo를 쓴 이유는 계산 비용이 비싸거나(즉, activeTickets, tickets 등 데이터가 많을 때), 
+  // 또는 매 렌더마다 불필요하게 재계산되지 않게 의존성 배열(deps) 값이 변경될 때만
+  // 결과를 다시 계산하도록 메모이제이션(memoization) 하기 위해서입니다.
+  // 예시:
+  // - summaryStats: activeTickets가 변경될 때만 총합/완료/진행중/율을 다시 계산
+  // - analysis, trendSeries, insights, predictions 등도 데이터/기간/preset이 바뀔 때만 계산
+  // 즉, 성능 최적화(불필요한 재계산 방지, 렌더 효율화) 목적입니다.
   const summaryStats = useMemo(() => {
     if (!activeTickets || activeTickets.length === 0) {
       return { total: 0, completed: 0, inProgress: 0, completionRate: 0 };
@@ -150,9 +168,9 @@ export default function PerformanceAnalytics({
 
   // 원본 티켓 기준으로 MVP 및 고WIP 담당자 식별 (체크박스 목록 렌더링용)
   const { mvpMember, wipMembers } = useMemo(() => {
-    if (!tickets || tickets.length === 0) return { mvpMember: null, wipMembers: [] };
+    if (!periodTickets || periodTickets.length === 0) return { mvpMember: null, wipMembers: [] };
     const byAssignee = {};
-    tickets.forEach(t => {
+    periodTickets.forEach(t => {
       if (!byAssignee[t.assignee]) byAssignee[t.assignee] = { completed: 0, inProgress: 0 };
       const st = (t.status || '').toLowerCase();
       if (st.includes('done') || st.includes('resolved') || st.includes('완료') || st.includes('closed')) {
@@ -172,7 +190,7 @@ export default function PerformanceAnalytics({
       if (byAssignee[a].inProgress > 5) wipList.push(a);
     });
     return { mvpMember: topMember, wipMembers: wipList };
-  }, [tickets]);
+  }, [periodTickets]);
 
   const handleToggleTicket = (ticketKey) => {
     setExcludedTicketKeys(prev => {
@@ -187,7 +205,7 @@ export default function PerformanceAnalytics({
   };
 
   const handleDownloadMonthlyReport = () => {
-    const report = generatePerformanceReport(tickets, analysis, 'monthly');
+    const report = generatePerformanceReport(activeTickets, analysis, 'monthly');
     const blob = new Blob([report], { type: 'text/markdown;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -200,7 +218,7 @@ export default function PerformanceAnalytics({
   };
 
   const handleDownloadYearlyReport = () => {
-    const report = generatePerformanceReport(tickets, analysis, 'yearly');
+    const report = generatePerformanceReport(activeTickets, analysis, 'yearly');
     const blob = new Blob([report], { type: 'text/markdown;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -226,7 +244,7 @@ export default function PerformanceAnalytics({
   };
 
   const handleCopyReport = (type) => {
-    const report = generatePerformanceReport(tickets, analysis, type);
+    const report = generatePerformanceReport(activeTickets, analysis, type);
     navigator.clipboard.writeText(report)
       .then(() => alert(`${type === 'monthly' ? '월별' : '연간'} 실적 보고서가 클립보드에 복사되었습니다.`))
       .catch(() => alert('복사 중 오류가 발생했습니다.'));
@@ -247,7 +265,8 @@ export default function PerformanceAnalytics({
       <div className="analytics-header">
         <div className="analytics-title">
           <h3>📊 담당자별 실적 분석</h3>
-          <p>프로젝트: {projectKey} | 기간: {dateStart} ~ {dateEnd}</p>
+          <p>프로젝트: {projectKey} | 기간: {dateStart} ~ {dateEnd} | 수집 {periodTickets.length}건</p>
+          <p className="analytics-jql-hint">JQL: {analyticsJql}</p>
         </div>
         <div className="analytics-controls">
           <FormField
@@ -330,7 +349,7 @@ export default function PerformanceAnalytics({
           <div className="analytics-spinner"></div>
           <p>실적 데이터를 수집하고 있습니다. 잠시만 기다려 주세요...</p>
         </div>
-      ) : !tickets || tickets.length === 0 ? (
+      ) : !periodTickets || periodTickets.length === 0 ? (
         <div className="analytics-empty-state">
           <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" strokeWidth="1.5">
             <path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
@@ -604,9 +623,9 @@ export default function PerformanceAnalytics({
                 <InsightsTicketSection
                   title={`🏆 MVP 후보: ${mvpMember} — 티켓 상세`}
                   badgeVariant="success"
-                  includedCount={tickets.filter(t => t.assignee === mvpMember && !excludedTicketKeys.has(t.key)).length}
-                  totalCount={tickets.filter(t => t.assignee === mvpMember).length}
-                  tickets={tickets.filter(t => t.assignee === mvpMember)}
+                  includedCount={periodTickets.filter(t => t.assignee === mvpMember && !excludedTicketKeys.has(t.key)).length}
+                  totalCount={periodTickets.filter(t => t.assignee === mvpMember).length}
+                  tickets={periodTickets.filter(t => t.assignee === mvpMember)}
                   excludedTicketKeys={excludedTicketKeys}
                   checkboxVariant="success"
                   onToggleTicket={handleToggleTicket}
@@ -614,7 +633,7 @@ export default function PerformanceAnalytics({
               )}
 
               {wipMembers.filter(m => m !== mvpMember).map(member => {
-                const memberTickets = tickets.filter(t => t.assignee === member);
+                const memberTickets = periodTickets.filter(t => t.assignee === member);
                 return (
                   <InsightsTicketSection
                     key={member}

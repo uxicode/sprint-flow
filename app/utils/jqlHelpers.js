@@ -31,3 +31,12 @@ export function buildScheduleJql(projectKey, teamMembers) {
     .setDateRange(`${thisYear}-01-01`, `${thisYear}-12-31`, 'created')
     .build();
 }
+
+/** 실적 분석: 선택 기간 내 활동(updated) 또는 마감(duedate) 티켓만 조회 */
+export function buildAnalyticsJql(projectKey, teamMembers, dateStart, dateEnd) {
+  return new JqlQueryBuilder()
+    .setProject(projectKey)
+    .setAssignees(teamMembers)
+    .setDateRange(dateStart, dateEnd, 'updated')
+    .build();
+}

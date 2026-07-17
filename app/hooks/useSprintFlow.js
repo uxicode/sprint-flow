@@ -12,7 +12,7 @@ import {
 import { fetchJiraTickets } from '../utils/jiraApi';
 import { generateMockTickets } from '../utils/mockTickets';
 import { fetchCalendarEvents } from '../utils/calendarApi';
-import { buildJql, buildNextWeekJql, buildScheduleJql } from '../utils/jqlHelpers';
+import { buildJql, buildNextWeekJql, buildScheduleJql, buildAnalyticsJql } from '../utils/jqlHelpers';
 import { parseMarkdownToHtml } from '../utils/markdown';
 import { buildEpicScheduleData, buildGanttData } from '../utils/schedule';
 import { buildWeeklyDownloadMarkdown } from '../utils/reportDownload';
@@ -255,6 +255,8 @@ export function useSprintFlow() {
       setCalendarRefreshToken(resolved.calendarRefreshToken);
       setProjectKey(resolved.projectKey);
       setTeamMembers(resolved.teamMembers);
+      setAnalyticsProjectKey(resolved.projectKey);
+      setAnalyticsTeamMembers(resolved.teamMembers);
       setRegisteredMembers(resolved.registeredMembers);
       setApiMode(resolved.apiMode);
 
@@ -341,11 +343,19 @@ export function useSprintFlow() {
     };
   }, []);
 
-  // 실적 분석 영역(티켓 상태 분포) 초기 데이터 로드
+  // 실적 분석: 기간·필터 변경 시 재조회
   useEffect(() => {
     if (!mounted || !isConfigLoaded || !isStatsJqlOpen || !analyticsDateStart || !analyticsDateEnd) return;
     lazyLoadAnalyticsTickets();
-  }, [mounted, isConfigLoaded, isStatsJqlOpen, analyticsDateStart, analyticsDateEnd]);
+  }, [
+    mounted,
+    isConfigLoaded,
+    isStatsJqlOpen,
+    analyticsDateStart,
+    analyticsDateEnd,
+    analyticsProjectKey,
+    analyticsTeamMembers,
+  ]);
 
   // --------------------------------------------------------------------------
   // 2. JQL 빌더 계산 함수
@@ -593,18 +603,17 @@ export function useSprintFlow() {
   // 실적 분석 기간 단독 조회 핸들러
   const handleFetchAnalyticsTickets = async (start, end) => {
     setIsAnalyticsLoading(true);
+    setIsAnalyticsLoaded(false);
 
-    const jql = new JqlQueryBuilder()
-      .setProject(analyticsProjectKey)
-      .setAssignees(analyticsTeamMembers)
-      .setDateRange(start, end, 'created')
-      .build();
+    const jql = buildAnalyticsJql(analyticsProjectKey, analyticsTeamMembers, start, end);
+    console.log('[Analytics] JQL:', jql);
 
     if (apiMode) {
       try {
         setConnectionStatus({ dot: 'success', text: '실적 분석 데이터 로드 중...' });
         const analyticsData = await loadJiraTickets(jql, url, email, token);
         setAnalyticsTickets(analyticsData);
+        setIsAnalyticsLoaded(true);
         setConnectionStatus({
           dot: 'success',
           text: `실적 분석 데이터 수집 완료 (${analyticsData.length}건)`
@@ -620,30 +629,31 @@ export function useSprintFlow() {
       setTimeout(() => {
         const mock = generateMockTickets(analyticsProjectKey, analyticsTeamMembers, start, end);
         setAnalyticsTickets(mock);
+        setIsAnalyticsLoaded(true);
         setIsAnalyticsLoading(false);
       }, 500);
     }
   };
 
   const lazyLoadAnalyticsTickets = async () => {
-    if (isAnalyticsLoaded) return;
     setIsAnalyticsLoading(true);
+    const jql = buildAnalyticsJql(
+      analyticsProjectKey,
+      analyticsTeamMembers,
+      analyticsDateStart,
+      analyticsDateEnd
+    );
+    console.log('[Analytics] JQL:', jql);
+
     if (apiMode) {
       try {
-        const start = analyticsDateStart;
-        const end = analyticsDateEnd;
-        const jql = new JqlQueryBuilder()
-          .setProject(analyticsProjectKey)
-          .setAssignees(analyticsTeamMembers)
-          .setDateRange(start, end, 'created')
-          .build();
         setConnectionStatus({ dot: 'success', text: '실적 분석 데이터 로드 중...' });
         const analyticsData = await loadJiraTickets(jql, url, email, token);
         setAnalyticsTickets(analyticsData);
         setIsAnalyticsLoaded(true);
         setConnectionStatus({
           dot: 'success',
-          text: `실적 분석 데이터 수집 완료 (${analyticsData.length}건)`
+          text: `실적 분석 데이터 수집 완료 (${analyticsData.length}건, ${analyticsDateStart}~${analyticsDateEnd})`
         });
       } catch (err) {
         console.error('실적 분석 지라 API 에러:', err);
@@ -1061,86 +1071,86 @@ export function useSprintFlow() {
       setIsSidebarOpen,
     },
     settings: {
-      url,
-      setUrl,
-      email,
-      setEmail,
-      token,
-      setToken,
-      confluenceSpace,
-      setConfluenceSpace,
-      confluenceParentId,
-      setConfluenceParentId,
-      calendarId,
-      setCalendarId,
-      calendarClientId,
-      setCalendarClientId,
-      calendarClientSecret,
-      setCalendarClientSecret,
-      calendarAuthStatus,
-      calendarErrorMessage,
-      apiMode,
-      newMemberName,
-      setNewMemberName,
-      registeredMembers,
-      handleSaveSettings,
-      handleApiToggle,
-      handleAddTeamMember,
-      handleRemoveTeamMember,
-      handleGoogleCalendarConnect,
-      handleGoogleCalendarDisconnect,
+      url, // Jira URL
+      setUrl, // Jira URL 설정
+      email, // Jira 이메일
+      setEmail, // Jira 이메일 설정
+      token, // Jira API 토큰
+      setToken, // Jira API 토큰 설정
+      confluenceSpace, // 컨플루언스 스페이스
+      setConfluenceSpace, // 컨플루언스 스페이스 설정
+      confluenceParentId, // 컨플루언스 부모 ID
+      setConfluenceParentId, // 컨플루언스 부모 ID 설정
+      calendarId, // 구글 캘린더 ID
+      setCalendarId, // 구글 캘린더 ID 설정
+      calendarClientId, // 구글 캘린더 클라이언트 ID
+      setCalendarClientId, // 구글 캘린더 클라이언트 ID 설정
+      calendarClientSecret, // 구글 캘린더 클라이언트 시크릿
+      setCalendarClientSecret, // 구글 캘린더 클라이언트 시크릿 설정
+      calendarAuthStatus, // 구글 캘린더 인증 상태
+      calendarErrorMessage, // 구글 캘린더 인증 에러 메시지
+      apiMode, // API 모드
+      newMemberName, // 새 팀 멤버 이름
+      setNewMemberName, // 새 팀 멤버 이름 설정
+      registeredMembers, // 등록된 팀 멤버 목록
+      handleSaveSettings, // 설정 저장
+      handleApiToggle, // API 모드 토글
+      handleAddTeamMember, // 팀 멤버 추가
+      handleRemoveTeamMember, // 팀 멤버 제거
+      handleGoogleCalendarConnect, // 구글 캘린더 연동
+      handleGoogleCalendarDisconnect, // 구글 캘린더 연동 해제
     },
     filter: {
-      projectKey,
-      setProjectKey,
-      teamMembers,
-      setTeamMembers,
-      dateStart,
-      setDateStart,
-      dateEnd,
-      setDateEnd,
-      isFilterOpen,
-      setIsFilterOpen,
-      isLoading,
-      activeChipsList,
-      handleFetchTickets,
-      handleToggleMemberChip,
-      getJql,
-      handleCopyJql,
+      projectKey, // 프로젝트 키
+      setProjectKey, // 프로젝트 키 설정
+      teamMembers, // 팀 멤버 데이터
+      setTeamMembers, // 팀 멤버 설정
+      dateStart, // 시작일
+      setDateStart, // 시작일 설정
+      dateEnd, // 종료일
+      setDateEnd, // 종료일 설정
+      isFilterOpen, // 필터 섹션 열림 여부
+      setIsFilterOpen, // 필터 섹션 열림 여부 설정
+      isLoading, // 로딩 상태
+      activeChipsList, // 팀 멤버 칩 목록
+      handleFetchTickets, // 티켓 데이터 조회
+      handleToggleMemberChip, // 팀 멤버 칩 토글
+      getJql, // JQL 조회
+      handleCopyJql, // JQL 복사
     },
     connectionStatus,
     stats: {
-      isStatsJqlOpen,
-      handleToggleStatsSection,
-      analyticsTickets,
-      analyticsProjectKey,
-      setAnalyticsProjectKey,
-      analyticsTeamMembers,
-      setAnalyticsTeamMembers,
-      analyticsDateStart,
-      setAnalyticsDateStart,
-      analyticsDateEnd,
-      setAnalyticsDateEnd,
-      handleFetchAnalyticsTickets,
-      isAnalyticsLoading,
+      isStatsJqlOpen, // 티켓 상태 분포 섹션 열림 여부
+      handleToggleStatsSection, // 티켓 상태 분포 섹션 토글
+      analyticsTickets, // 티켓 데이터
+      analyticsProjectKey, // 프로젝트 키
+      setAnalyticsProjectKey, // 프로젝트 키 설정
+      analyticsTeamMembers, // 팀 멤버 데이터
+      setAnalyticsTeamMembers, // 팀 멤버 설정
+      analyticsDateStart, // 시작일
+      setAnalyticsDateStart, // 시작일 설정
+      analyticsDateEnd, // 종료일
+      setAnalyticsDateEnd, // 종료일 설정
+      handleFetchAnalyticsTickets, // 티켓 데이터 조회
+      isAnalyticsLoading, // 티켓 데이터 로딩 상태  
     },
     reports: {
-      activeTab,
-      handleTabChange,
-      dailyReportMd,
-      weeklyReportMd,
-      tickets,
-      parseMarkdownToHtml,
-      handleCopyReport,
-      handleDownloadReport,
-      handlePublishConfluence,
+      activeTab, // 활성 탭
+      handleTabChange, // 탭 변경
+      dailyReportMd, // 일일 보고서 마크다운
+      weeklyReportMd, // 주간 보고서 마크다운
+      tickets, // 티켓 데이터
+      parseMarkdownToHtml, // 마크다운 파싱
+      handleCopyReport, // 마크다운 복사
+      handleDownloadReport, // 마크다운 다운로드
+      handlePublishConfluence, // 컨플루언스 등록
     },
     schedule: {
-      ganttData,
-      epicScheduleData,
-      expandedEpics,
-      toggleEpicCollapse,
-      url,
+      ganttData, // 간트 차트 데이터
+      epicScheduleData, // 에픽 스케줄 데이터
+      expandedEpics, // 에픽 확장 상태
+      toggleEpicCollapse, // 에픽 확장 토글
+      url, // 컨플루언스 URL
     },
   };
 }

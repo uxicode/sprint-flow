@@ -2,6 +2,19 @@ import { groupBy, sumBy, meanBy, orderBy } from 'lodash';
 import { format, startOfMonth, endOfMonth, eachMonthOfInterval, eachDayOfInterval, subMonths, differenceInDays, parseISO } from 'date-fns';
 
 /**
+ * 선택 기간 내 티켓만 남김 (updated 우선, 없으면 created)
+ */
+export function filterTicketsByDateRange(tickets, dateStart, dateEnd) {
+  if (!tickets?.length || !dateStart || !dateEnd) return tickets || [];
+
+  return tickets.filter((ticket) => {
+    const dateStr = (ticket.updated || ticket.created || '').substring(0, 10);
+    if (!dateStr) return false;
+    return dateStr >= dateStart && dateStr <= dateEnd;
+  });
+}
+
+/**
  * 담당자별 월별 실적 집계
  * @param {Array} tickets - Jira 티켓 배열
  * @returns {Object} 월별 담당자별 집계 데이터
@@ -15,9 +28,9 @@ export function analyzeMonthlyPerformance(tickets) {
     };
   }
 
-  // 날짜별로 그룹화 (created 우선, fallback으로 updated)
+  // 날짜별로 그룹화 (updated 우선, fallback으로 created)
   const ticketsByMonth = groupBy(tickets, (ticket) => {
-    const dateStr = ticket.created || ticket.updated;
+    const dateStr = ticket.updated || ticket.created;
     if (!dateStr) return 'unknown';
     return format(parseISO(dateStr), 'yyyy-MM');
   });
