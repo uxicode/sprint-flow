@@ -2203,16 +2203,16 @@ input:checked+.slider:before {
   cursor: pointer;
   user-select: none;
   margin-bottom: 1rem;
-  border-bottom: none;
-  padding-bottom: 0;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 0.75rem;
 }
 
 .section-header--plain {
   cursor: pointer;
   user-select: none;
-  border-bottom: none;
-  padding-bottom: 0;
-  margin-bottom: 0;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 0.75rem;
+  margin-bottom: 1rem;
 }
 
 .section-header__title {
