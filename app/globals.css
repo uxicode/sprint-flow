@@ -1532,61 +1532,6 @@ input:checked+.slider:before {
   color: var(--text-muted);
 }
 
-.epic-cards-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-
-.epic-schedule-card {
-  display: flex;
-  flex-direction: column;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-  transition: transform 0.2s, border-color 0.2s;
-}
-
-.epic-schedule-card:hover {
-  border-color: rgba(0, 242, 254, 0.3);
-}
-
-.epic-card-header {
-  background: rgba(42, 42, 136, 0.004);
-  border-bottom: 1px solid var(--border-color);
-  padding: 1rem;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 1rem;
-}
-
-.epic-title-group {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.epic-badge {
-  background: var(--color-accent-gradient);
-  color: #ffffff;
-  font-size: 0.8125rem;
-  font-weight: 700;
-  padding: 0.2rem 0.4rem;
-  border-radius: 4px;
-  background-color: #4e88f9;
-}
-
-.epic-summary {
-  font-size: 1.05rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin: 0;
-}
-
 .epic-due-date-badge {
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -1671,13 +1616,6 @@ input:checked+.slider:before {
   background: var(--raw-neon-purple);
 }
 
-.epic-card-body {
-  padding: 1.5rem;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 1.5rem;
-}
-
 .category-group {
   background: rgba(0, 0, 0, 0.15);
   border-radius: var(--radius-md);
@@ -1688,13 +1626,40 @@ input:checked+.slider:before {
 .category-group h5 {
   font-size: 0.875rem;
   font-weight: 600;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0;
   color: var(--text-muted);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  padding-bottom: 0.5rem;
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+.category-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding-bottom: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.epic-stats-row--inline {
+  gap: 0;
+  margin-left: auto;
+}
+
+.gantt-row-tickets .stat-badge {
+  min-width: 108px;
+  padding: 0.3rem 0.55rem;
+}
+
+.stat-badge.other {
+  border-left: 3px solid var(--color-warning);
+}
+
+.stat-badge.other .mini-progress-bar .fill {
+  background: var(--color-warning);
 }
 
 .schedule-ticket-list {
@@ -1713,8 +1678,9 @@ input:checked+.slider:before {
   padding: 0.4rem 0.85rem;
   font-size: 0.825rem;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   gap: 0.25rem;
+  align-items: center;
 }
 
 .schedule-ticket-item:hover {
@@ -1735,6 +1701,7 @@ input:checked+.slider:before {
   color: var(--text-primary);
   line-height: 1.4;
   font-size: 12px;
+  text-decoration: underline;
 }
 
 .ticket-key-assignee {
@@ -1749,7 +1716,7 @@ input:checked+.slider:before {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 0.25rem;
+  /* margin-top: 0.25rem; */
   font-size: 0.75rem;
 }
 
@@ -1893,11 +1860,29 @@ input:checked+.slider:before {
 .gantt-title {
   font-size: 1.1rem;
   font-weight: 600;
-  margin-bottom: 1.25rem;
+  margin-bottom: 0.35rem;
   display: flex;
   align-items: center;
   gap: 0.5rem;
   color: var(--text-primary);
+}
+
+.gantt-subtitle {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-bottom: 1.25rem;
+}
+
+.gantt-row-group {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.gantt-row-group.is-expanded {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.gantt-row-group .gantt-row {
+  border-bottom: none;
 }
 
 .gantt-timeline-wrapper {
@@ -1969,7 +1954,6 @@ input:checked+.slider:before {
   display: flex;
   align-items: center;
   min-height: 52px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
   position: relative;
   z-index: 2;
 }
@@ -1987,10 +1971,64 @@ input:checked+.slider:before {
 
 .gantt-epic-info {
   display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
+  align-items: flex-start;
+  gap: 0.35rem;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
   cursor: pointer;
   overflow: hidden;
+}
+
+.gantt-epic-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 0.15rem;
+  color: var(--text-muted);
+  transform: rotate(90deg);
+  transition: transform 0.2s ease, color 0.2s ease;
+}
+
+.gantt-epic-chevron.is-expanded {
+  transform: rotate(180deg);
+  color: var(--color-accent);
+}
+
+.gantt-epic-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.gantt-epic-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.gantt-epic-meta .epic-due-date-badge {
+  font-size: 0.65rem;
+  padding: 1px 5px;
+}
+
+.gantt-row-tickets {
+  position: relative;
+  z-index: 2;
+  padding: 0.75rem 1rem 1rem 1.75rem;
+  border-top: 1px dashed rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.gantt-row-tickets-empty {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--text-muted);
 }
 
 .gantt-epic-info .epic-key {
@@ -2014,8 +2052,12 @@ input:checked+.slider:before {
   transition: color 0.2s ease;
 }
 
-.gantt-epic-info:hover .epic-name {
+.gantt-epic-info:hover .epic-name,
+.gantt-row-group.is-expanded .epic-name {
   color: var(--color-accent);
+}
+
+.gantt-epic-info:hover .epic-name {
   text-decoration: underline;
 }
 
@@ -2260,15 +2302,6 @@ input:checked+.slider:before {
   margin-top: 1rem;
 }
 
-.epic-card-slide-container {
-  transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease-out;
-}
-
-.epic-card-slide-container.is-open {
-  max-height: 2000px;
-  opacity: 1;
-}
-
 .filter-grid--padded {
   padding-top: 0.5rem;
 }
@@ -2287,17 +2320,6 @@ input:checked+.slider:before {
   text-align: center;
   padding: 4rem 2rem;
   color: var(--text-muted);
-}
-
-.epic-card-header--interactive {
-  cursor: pointer;
-  user-select: none;
-}
-
-.epic-card-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
 }
 
 .markdown-preview a,
