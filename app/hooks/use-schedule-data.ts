@@ -52,6 +52,6 @@ export function useScheduleData(): { ganttData: GanttData; isScheduleLoading: bo
 
   return {
     ganttData,
-    isScheduleLoading: query.isFetching,
+    isScheduleLoading: query.isLoading,
   };
 }
