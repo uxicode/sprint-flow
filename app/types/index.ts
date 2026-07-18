@@ -401,6 +401,7 @@ export interface BuildWeeklyDownloadParams {
   weeklyReportMd: string;
   tickets: Ticket[];
   nextTickets: Ticket[];
+  scheduleTickets?: Ticket[];
   vacationList: CalendarEvent[] | string[];
   dateStart: string;
   dateEnd: string;

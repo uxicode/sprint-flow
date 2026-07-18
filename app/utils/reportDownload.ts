@@ -1,5 +1,47 @@
+import dayjs from 'dayjs';
 import { getStatusCategory, getMemberVacationDates, getVacationMembers } from './jira';
-import type { CalendarEvent, BuildWeeklyDownloadParams, EpicGroup, Ticket } from '../types';
+import { buildEpicScheduleData } from './schedule';
+import type { CalendarEvent, BuildWeeklyDownloadParams, EpicGroup, EpicScheduleItem, Ticket } from '../types';
+
+function formatEpicDate(dateStr: string | null | undefined): string | null {
+  if (!dateStr) return null;
+  const formatted = dayjs(dateStr);
+  return formatted.isValid() ? formatted.format('YY.MM.DD') : null;
+}
+
+function formatEpicDateRange(startDate: string, endDate: string): string | null {
+  const start = formatEpicDate(startDate);
+  const end = formatEpicDate(endDate);
+  if (start && end) return `${start} ~ ${end}`;
+  return start || end;
+}
+
+export function formatGroupProgressBadge(
+  label: 'BE' | 'FE' | 'MO',
+  progress: number | null,
+  doneCount: number,
+  totalCount: number,
+): string | null {
+  if (progress === null || totalCount === 0) return null;
+  return `${label}: ${progress}% (${doneCount}/${totalCount})`;
+}
+
+export function formatEpicScheduleMeta(meta: EpicScheduleItem | undefined): string {
+  if (!meta) return '';
+
+  const parts: string[] = [];
+  const dateRange = formatEpicDateRange(meta.startDate, meta.endDate);
+  if (dateRange) parts.push(dateRange);
+
+  const progressParts = [
+    formatGroupProgressBadge('BE', meta.beProgress, meta.beDoneCount, meta.beCount),
+    formatGroupProgressBadge('FE', meta.feProgress, meta.feDoneCount, meta.feCount),
+    formatGroupProgressBadge('MO', meta.moProgress, meta.moDoneCount, meta.moCount),
+  ].filter((part): part is string => Boolean(part));
+
+  if (progressParts.length > 0) parts.push(progressParts.join(' | '));
+  return parts.length > 0 ? ` — ${parts.join(' | ')}` : '';
+}
 
 function groupTicketsByEpic(ticketList: Ticket[]): Record<string, EpicGroup> {
   const epicsMap: Record<string, EpicGroup> = {};
@@ -14,7 +56,11 @@ function groupTicketsByEpic(ticketList: Ticket[]): Record<string, EpicGroup> {
   return epicsMap;
 }
 
-function renderEpicSection(epicsMap: Record<string, EpicGroup>, includeStatus = false): string {
+function renderEpicSection(
+  epicsMap: Record<string, EpicGroup>,
+  epicScheduleByKey: Map<string, EpicScheduleItem>,
+  includeStatus = false,
+): string {
   let section = '';
   const sortedEpicKeys = Object.keys(epicsMap).sort((a, b) => {
     if (a === 'NO_EPIC') return 1;
@@ -24,9 +70,10 @@ function renderEpicSection(epicsMap: Record<string, EpicGroup>, includeStatus = 
 
   sortedEpicKeys.forEach(epicKey => {
     const epic = epicsMap[epicKey];
+    const epicMeta = formatEpicScheduleMeta(epicScheduleByKey.get(epicKey));
     section += epicKey === 'NO_EPIC'
-      ? `### 🏷️ ${epic.summary}\n`
-      : `### 🏷️ 에픽: ${epic.summary} (${epic.key})\n`;
+      ? `### 🏷️ ${epic.summary}${epicMeta}\n`
+      : `### 🏷️ 에픽: ${epic.summary} (${epic.key})${epicMeta}\n`;
 
     epic.tickets.forEach(t => {
       let summary = (t.summary || '').trim();
@@ -49,6 +96,7 @@ export function buildWeeklyDownloadMarkdown({
   weeklyReportMd,
   tickets,
   nextTickets,
+  scheduleTickets,
   vacationList,
   dateStart,
   dateEnd,
@@ -61,11 +109,17 @@ export function buildWeeklyDownloadMarkdown({
 
   let section3 = '## 📋 3. 상세 업무 진행 현황\n\n';
   const activeTickets = tickets.filter(t => getStatusCategory(t.status) !== 'To Do');
+  const progressSourceTickets = scheduleTickets && scheduleTickets.length > 0
+    ? scheduleTickets
+    : activeTickets;
 
   if (activeTickets.length === 0) {
     section3 += '* 조회 기간 내 상세 티켓 내역이 없습니다.\n\n';
   } else {
-    section3 += renderEpicSection(groupTicketsByEpic(activeTickets), true);
+    const epicScheduleByKey = new Map(
+      buildEpicScheduleData(progressSourceTickets).map((epic) => [epic.key, epic]),
+    );
+    section3 += renderEpicSection(groupTicketsByEpic(activeTickets), epicScheduleByKey, true);
   }
 
   const activeWeeklyVacations: string[] = Array.isArray(vacationList)
@@ -90,7 +144,7 @@ export function buildWeeklyDownloadMarkdown({
     section4 += '* **마일스톤 점검**: 다음 주 예정된 지라 티켓이 등록되어 있지 않거나 계획을 불러올 수 없습니다.\n';
     section4 += '* **장애 요인**: 예정된 주요 마일스톤에 지연 요소가 없는지 리스크 사전 점검.\n';
   } else {
-    section4 += renderEpicSection(groupTicketsByEpic(nextTickets), false);
+    section4 += renderEpicSection(groupTicketsByEpic(nextTickets), new Map(), false);
   }
 
   return `${part1.trimEnd()}\n\n${section3.trimEnd()}\n\n${section4.trimEnd()}\n`;

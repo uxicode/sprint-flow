@@ -2,8 +2,11 @@
 
 import { useState } from 'react';
 import dayjs from 'dayjs';
+import { useQueryClient } from '@tanstack/react-query';
 import { parseMarkdownToHtml } from '../utils/markdown';
 import { buildWeeklyDownloadMarkdown } from '../utils/reportDownload';
+import { fetchScheduleBundle } from '../lib/jira-fetchers';
+import { queryKeys } from '../lib/query-keys';
 import { useDashboardData } from './use-dashboard-data';
 import {
   useTypedFilterStore,
@@ -28,6 +31,8 @@ interface ConfluencePublishRequestBody {
 
 export function useReportActions() {
   const [isPublishing, setIsPublishing] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const queryClient = useQueryClient();
   const activeTab = useTypedUiStore((s) => s.activeTab);
   const setActiveTab = useTypedUiStore((s) => s.setActiveTab);
   const dailyReportMd = useTypedReportStore((s) => s.dailyReportMd);
@@ -35,6 +40,8 @@ export function useReportActions() {
   const vacationList = useTypedReportStore((s) => s.vacationList);
   const dateStart = useTypedFilterStore((s) => s.dateStart);
   const dateEnd = useTypedFilterStore((s) => s.dateEnd);
+  const projectKey = useTypedFilterStore((s) => s.projectKey);
+  const teamMembers = useTypedFilterStore((s) => s.teamMembers);
   const registeredMembers = useTypedSettingsStore((s) => s.registeredMembers);
   const url = useTypedSettingsStore((s) => s.url);
   const email = useTypedSettingsStore((s) => s.email);
@@ -45,10 +52,12 @@ export function useReportActions() {
   const { tickets, nextTickets } = useDashboardData();
 
   const handleTabChange = (tab: ActiveTab): void => {
+    if (isDownloading) return;
     setActiveTab(tab);
   };
 
   const handleCopyReport = (): void => {
+    if (isDownloading) return;
     let txt = '';
     if (activeTab === 'tab-daily') txt = dailyReportMd;
     else if (activeTab === 'tab-weekly') txt = weeklyReportMd;
@@ -67,23 +76,48 @@ export function useReportActions() {
       .catch(() => alert('클립보드 복사 중 에러가 발생했습니다.'));
   };
 
-  const handleDownloadReport = (): void => {
+  const handleDownloadReport = async (): Promise<void> => {
+    if (isDownloading) return;
+
     let txt = '';
     let name = '';
     if (activeTab === 'tab-daily') {
       txt = dailyReportMd;
       name = `Daily_Report_${dateStart}_to_${dateEnd}.md`;
     } else if (activeTab === 'tab-weekly') {
-      txt = buildWeeklyDownloadMarkdown({
-        weeklyReportMd,
-        tickets,
-        nextTickets,
-        vacationList,
-        dateStart,
-        dateEnd,
-        registeredMembers,
-      });
-      name = `Weekly_Report_${dateStart}_to_${dateEnd}.md`;
+      setIsDownloading(true);
+      try {
+        let scheduleTickets: typeof tickets = [];
+        try {
+          const scheduleFilter = { projectKey, teamMembers };
+          const scheduleBundle = await queryClient.fetchQuery({
+            queryKey: queryKeys.schedule(scheduleFilter),
+            queryFn: () => fetchScheduleBundle({
+              apiMode,
+              credentials: { url, email, token },
+              filter: scheduleFilter,
+            }),
+            staleTime: 60_000,
+          });
+          scheduleTickets = scheduleBundle.tickets;
+        } catch (err) {
+          console.warn('일정 데이터 조회 실패, 주간 티켓 기준으로 진행률을 계산합니다.', err);
+        }
+
+        txt = buildWeeklyDownloadMarkdown({
+          weeklyReportMd,
+          tickets,
+          nextTickets,
+          scheduleTickets,
+          vacationList,
+          dateStart,
+          dateEnd,
+          registeredMembers,
+        });
+        name = `Weekly_Report_${dateStart}_to_${dateEnd}.md`;
+      } finally {
+        setIsDownloading(false);
+      }
     } else {
       alert('다운로드할 보고서 탭을 선택해 주세요.');
       return;
@@ -107,6 +141,7 @@ export function useReportActions() {
   };
 
   const handlePublishConfluence = async (): Promise<void> => {
+    if (isDownloading) return;
     let reportText = '';
     let reportTitle = '';
 
@@ -216,5 +251,6 @@ export function useReportActions() {
     handleDownloadReport,
     handlePublishConfluence,
     isPublishing,
+    isDownloading,
   };
 }
