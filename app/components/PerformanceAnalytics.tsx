@@ -16,7 +16,8 @@ import {
   ResponsiveContainer,
   PieChart,
   Pie,
-  Cell
+  Cell,
+  type PieLabelRenderProps,
 } from 'recharts';
 import {
   analyzeMonthlyPerformance,
@@ -66,6 +67,31 @@ function detectPeriodPreset(dateStart: string, dateEnd: string): number | 'custo
 }
 
 const COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#ef4444', '#14b8a6'];
+
+function renderCompletionPieLabel(props: PieLabelRenderProps) {
+  const { cx = 0, cy = 0, midAngle = 0, outerRadius = 0, name, percent } = props;
+  const RADIAN = Math.PI / 180;
+  const centerX = Number(cx);
+  const centerY = Number(cy);
+  const labelRadius = Number(outerRadius) + 14;
+  const x = centerX + labelRadius * Math.cos(-midAngle * RADIAN);
+  const y = centerY + labelRadius * Math.sin(-midAngle * RADIAN);
+  const textAnchor = x > centerX ? 'start' : x < centerX ? 'end' : 'middle';
+  const pct = ((percent ?? 0) * 100).toFixed(0);
+
+  return (
+    <text
+      x={x}
+      y={y}
+      fill="#ccc"
+      textAnchor={textAnchor}
+      dominantBaseline="central"
+      fontSize={12}
+    >
+      {`${String(name ?? '')} ${pct}%`}
+    </text>
+  );
+}
 
 export interface PerformanceAnalyticsProps {
   tickets: Ticket[];
@@ -197,6 +223,11 @@ export default function PerformanceAnalytics({
     });
     return { mvpMember: topMember, wipMembers: wipList };
   }, [periodTickets]);
+
+  const completionPieData = useMemo(
+    () => analysis.summary.filter((member) => member.completed > 0),
+    [analysis.summary]
+  );
 
   const handleToggleTicket = (ticketKey: string) => {
     setExcludedTicketKeys(prev => {
@@ -516,34 +547,55 @@ export default function PerformanceAnalytics({
                   </ResponsiveContainer>
                 </div>
 
-                {/* 완료율 파이 차트 */}
+                {/* 완료율 파이 차트 — Flexbox + responsive (Recharts PieChartInFlexbox) */}
                 <div className="chart-section card">
                   <h4>담당자별 완료 비율</h4>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <PieChart>
-                      <Pie
-                        data={analysis.summary}
-                        dataKey="completed"
-                        nameKey="assignee"
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={50}
-                        outerRadius={80}
-                        paddingAngle={3}
-                        label={(entry) => {
-                          const e = entry as unknown as { assignee?: string; completed?: number };
-                          return `${e.assignee}: ${e.completed}건`;
-                        }}
+                  <p className="chart-section-note">
+                    완료 건수 기준 비중 · 슬라이스 간격과 둥근 모서리 적용
+                  </p>
+                  {completionPieData.length === 0 ? (
+                    <p className="chart-section-empty">완료 건수가 있는 담당자가 없습니다.</p>
+                  ) : (
+                    <div className="completion-pie-flex">
+                      {/* PieChart margin — 좌우 52px 여백을 줘서 라벨이 SVG 밖으로 잘리지 않게 함
+                          컨테이너 — maxWidth: 280px 제한을 풀고, 중앙 정렬 + 최대 380px
+                          라벨 위치만 조정 — 표시 문구는 동일하고, 좌/우에 따라 textAnchor를 바꿔 긴 이름이 잘리지 않게 함 */}
+                      <PieChart
+                        responsive
+                        className="completion-pie-flex__chart"
+                        margin={{ top: 12, right: 52, bottom: 12, left: 52 }}
                       >
-                        {analysis.summary.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        contentStyle={{ backgroundColor: '#1a1a2e', border: '1px solid #333', borderRadius: '8px' }}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
+                        <Pie
+                          data={completionPieData}
+                          dataKey="completed"
+                          nameKey="assignee"
+                          cx="50%"
+                          cy="50%"
+                          outerRadius="80%"
+                          innerRadius="60%"
+                          stroke="none"
+                          label={renderCompletionPieLabel}
+                          labelLine={false}
+                        >
+                          {completionPieData.map((entry, index) => (
+                            <Cell key={`cell-${entry.assignee}`} fill={COLORS[index % COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          contentStyle={{ backgroundColor: '#1a1a2e', border: '1px solid #333', borderRadius: '8px' }}
+                          formatter={(value, _name, item) => {
+                            const payload = item.payload as { assignee?: string; completionRate?: number };
+                            const count = typeof value === 'number' ? value : Number(value ?? 0);
+                            return [
+                              `${count}건 (완료율 ${payload.completionRate ?? 0}%)`,
+                              payload.assignee ?? '',
+                            ];
+                          }}
+                        />
+                      </PieChart>
+                      
+                    </div>
+                  )}
                 </div>
 
                 {/* 담당자별 티켓 상태 누적 비교 (Stacked Bar Chart) */}

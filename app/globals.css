@@ -1275,6 +1275,32 @@ input:checked+.slider:before {
   line-height: 1.4;
 }
 
+.chart-section-empty {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 2rem 1rem;
+}
+
+.completion-pie-flex {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  min-height: 320px;
+  overflow: visible;
+}
+
+.completion-pie-flex__chart {
+  width: min(100%, 380px);
+  aspect-ratio: 1;
+  overflow: visible;
+}
+
+.completion-pie-flex__chart svg {
+  overflow: visible;
+}
+
 .comparison-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
