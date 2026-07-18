@@ -23,7 +23,13 @@
   --raw-amber: #f6d365;
 
   /* Tier 2 Glassmorphism & Theme Tokens */
-  --bg-primary: var(--raw-slate-950);
+  --glass-bg-deep: #120622;
+  --glass-bg-violet: #4c1d95;
+  --glass-bg-magenta: #a21caf;
+  --glass-bg-rose: #db2777;
+  --glass-bg-lavender: #f5d0fe;
+
+  --bg-primary: var(--glass-bg-deep);
   --bg-secondary: rgba(12, 12, 20, 0.5);
   --bg-card: rgba(20, 20, 36, 0.45);
   --border-color: rgba(255, 255, 255, 0.08);
@@ -65,19 +71,54 @@
 
 body {
   font-family: var(--font-family);
-  background-color: var(--bg-primary);
-  /* Aurora mesh gradients that show through glass panels */
-  background-image:
-    radial-gradient(at 10% 20%, rgba(79, 70, 229, 0.12) 0px, transparent 50%),
-    radial-gradient(at 90% 10%, rgba(168, 85, 247, 0.1) 0px, transparent 50%),
-    radial-gradient(at 50% 80%, rgba(6, 182, 212, 0.08) 0px, transparent 50%);
-  background-attachment: fixed;
+  position: relative;
+  isolation: isolate;
+  background-color: var(--glass-bg-deep);
   color: var(--text-primary);
   min-height: 100vh;
   display: flex;
   overflow-x: hidden;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Glassmorphism aurora — violet / magenta / pink fluid blobs */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background-color: var(--glass-bg-deep);
+  background-image:
+    radial-gradient(ellipse 62% 52% at 18% 88%, rgba(42, 13, 85, 0.95) 0%, transparent 58%),
+    radial-gradient(ellipse 58% 48% at 52% 62%, rgba(117, 0, 127, 0.88) 0%, transparent 56%),
+    radial-gradient(ellipse 54% 46% at 78% 28%, rgba(226, 139, 248, 0.62) 0%, transparent 54%),
+    radial-gradient(ellipse 48% 42% at 88% 78%, rgba(170, 27, 91, 0.72) 0%, transparent 52%),
+    radial-gradient(ellipse 40% 36% at 32% 18%, rgba(84, 23, 53, 0.45) 0%, transparent 50%),
+    linear-gradient(
+      145deg,
+      #0f0520 0%,
+      #2e1065 22%,
+      #6b21a8 42%,
+      #a21caf 58%,
+      #db2777 76%,
+      #fbcfe8 100%
+    );
+  background-attachment: fixed;
+}
+
+body::after {
+  content: '';
+  position: fixed;
+  inset: -8%;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 72% 22%, rgba(253, 186, 216, 0.55) 0%, transparent 38%),
+    radial-gradient(circle at 12% 72%, rgba(109, 40, 217, 0.45) 0%, transparent 42%);
+  filter: blur(52px);
+  opacity: 0.85;
 }
 
 /* Modern Native Scrollbars optimized for dark glass */
@@ -125,6 +166,7 @@ select {
   justify-content: space-between;
   flex-shrink: 0;
   transition: margin-left 0.35s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease;
+  box-shadow: var(--shadow-soft);
 }
 
 /* 사이드바 숨김(슬라이드 아웃) */
@@ -153,6 +195,9 @@ select {
 .sidebar-collapse-btn:hover {
   background: rgba(255, 255, 255, 0.12);
   color: #fff;
+}
+.sidebar-collapse-btn svg {
+  transform: rotate(90deg);
 }
 
 /* 사이드바 숨김 시 화면에 살짝 노출되는 열기 버튼 */
@@ -389,7 +434,7 @@ input:checked+.slider:before {
 
 .quick-status {
   background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.35);
   padding: 0.5rem 1rem;
   border-radius: 30px;
   backdrop-filter: blur(10px);
@@ -1185,12 +1230,13 @@ input:checked+.slider:before {
 }
 
 .analytics-title h3 {
+  color: var(--color-accent);
   font-size: 1.4rem;
   font-weight: 700;
   margin-bottom: 0.25rem;
-  background: linear-gradient(135deg, var(--raw-neon-blue), var(--raw-neon-purple));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  /* background: linear-gradient(135deg, var(--raw-neon-blue), var(--raw-neon-purple)); */
+  /* -webkit-background-clip: text; */
+  /* -webkit-text-fill-color: transparent; */
 }
 
 .analytics-title p {

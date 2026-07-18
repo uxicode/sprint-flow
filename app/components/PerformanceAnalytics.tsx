@@ -301,9 +301,13 @@ export default function PerformanceAnalytics({
       {/* 헤더 & 컨트롤 */}
       <div className="analytics-header">
         <div className="analytics-title">
-          <h3>📊 담당자별 실적 분석</h3>
+          <h3>📊  담당자별 실적 분석</h3>
+          <div className="jql-body">
           <p>프로젝트: {projectKey} | 기간: {dateStart} ~ {dateEnd} | 수집 {periodTickets.length}건</p>
-          <p className="analytics-jql-hint">JQL: {analyticsJql}</p>
+            <code>
+              <p className="analytics-jql-hint">JQL: {analyticsJql}</p>
+            </code>
+          </div>
         </div>
         <div className="analytics-controls">
           <FormField
