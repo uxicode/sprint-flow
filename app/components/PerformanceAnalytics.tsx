@@ -317,7 +317,7 @@ export default function PerformanceAnalytics({
             value={projectKey}
             onChange={(e) => setProjectKey(e.target.value)}
             placeholder="예: DI26"
-            inputClassName="select-input--project"
+            inputClassName="control-input--project"
           />
           <FormField
             variant="control"
@@ -326,7 +326,7 @@ export default function PerformanceAnalytics({
             value={teamMembers}
             onChange={(e) => setTeamMembers(e.target.value)}
             placeholder="홍길동, 김철수"
-            inputClassName="select-input--team"
+            inputClassName="control-input--team"
           />
 
           <div className="control-divider control-divider--narrow"></div>

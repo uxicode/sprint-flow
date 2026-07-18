@@ -35,7 +35,12 @@ export default function FormField({
   children,
   ...controlProps
 }: FormFieldProps) {
-  const defaultInputClass = variant === 'control' ? 'select-input' : undefined;
+  const defaultInputClass =
+    variant === 'control'
+      ? as === 'select'
+        ? 'select-input'
+        : 'control-input'
+      : undefined;
 
   let control = null;
 

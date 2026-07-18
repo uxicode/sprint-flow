@@ -57,6 +57,8 @@
 
   /* Custom Interpolation spaces */
   --in-oklab: in oklab;
+
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23c9c9df' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
 }
 
 /* ==========================================================================
@@ -1270,8 +1272,9 @@ input:checked+.slider:before {
   white-space: nowrap;
 }
 
+.control-input,
 .select-input {
-  background: rgba(0, 0, 0, 0.35);
+  background-color: rgba(0, 0, 0, 0.35);
   border: 1px solid var(--border-color);
   color: var(--text-primary);
   padding: 0.5rem 0.75rem;
@@ -1281,12 +1284,32 @@ input:checked+.slider:before {
   transition: border-color 0.2s, background-color 0.2s;
 }
 
+select.select-input {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding-right: 2rem;
+  background-image: var(--select-chevron);
+  background-repeat: no-repeat;
+  background-position: right 0.65rem center;
+  background-size: 0.75rem;
+}
+
+.control-input:focus,
 .select-input:focus {
   border-color: var(--color-accent);
-  background: rgba(0, 0, 0, 0.45);
+  background-color: rgba(0, 0, 0, 0.45);
   outline: none;
 }
 
+select.select-input:focus {
+  background-image: var(--select-chevron);
+  background-repeat: no-repeat;
+  background-position: right 0.65rem center;
+  background-size: 0.75rem;
+}
+
+.control-input:hover,
 .select-input:hover {
   border-color: rgba(255, 255, 255, 0.15);
 }
@@ -2051,7 +2074,7 @@ input:checked+.slider:before {
   background: none;
   text-align: left;
   cursor: pointer;
-  overflow: hidden;
+  /* overflow: hidden; */
 }
 
 .gantt-epic-chevron {
@@ -2118,7 +2141,7 @@ input:checked+.slider:before {
   font-size: 0.8125rem;
   font-weight: 600;
   white-space: nowrap;
-  overflow: hidden;
+  /* overflow: hidden; */
   text-overflow: ellipsis;
   color: var(--text-primary);
   transition: color 0.2s ease;
@@ -2420,11 +2443,11 @@ input:checked+.slider:before {
   margin: 0 0.25rem;
 }
 
-.select-input--project {
+.control-input--project {
   width: 80px;
 }
 
-.select-input--team {
+.control-input--team {
   width: 200px;
 }
 
