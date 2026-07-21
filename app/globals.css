@@ -2686,3 +2686,249 @@ select.select-input:focus {
 .confidence-badge--low {
   background-color: #ef4444;
 }
+
+/* ==========================================================================
+   Drag & Drop - Genie (요술램프 지니) Motion & Docking Styles
+   ========================================================================== */
+
+.genie-wrapper-relative {
+  position: relative;
+}
+
+.drag-handle-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.75rem;
+  margin-bottom: 0.5rem;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.drag-handle-bar:hover {
+  background: rgba(0, 242, 254, 0.08);
+  border-color: rgba(0, 242, 254, 0.35);
+  color: var(--color-accent);
+}
+
+.drag-handle-bar:active {
+  cursor: grabbing;
+}
+
+.drag-grip {
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--color-accent);
+}
+
+.drag-tip-text {
+  opacity: 0.75;
+}
+
+/* Drop Overlay and Drop Zone Indicators */
+.genie-drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+}
+
+.drop-zone {
+  position: fixed;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 242, 254, 0.04);
+  border: 2px dashed rgba(0, 242, 254, 0.3);
+  backdrop-filter: blur(8px);
+  border-radius: var(--radius-lg);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 0 20px rgba(0, 242, 254, 0.05);
+}
+
+.drop-zone.active {
+  background: rgba(0, 242, 254, 0.16);
+  border-color: var(--color-accent);
+  border-style: solid;
+  box-shadow: 0 0 35px rgba(0, 242, 254, 0.4), inset 0 0 20px rgba(0, 242, 254, 0.2);
+  transform: scale(1.02);
+}
+
+.drop-zone-badge {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-accent);
+  padding: 0.4rem 0.9rem;
+  border-radius: var(--radius-sm);
+  background: rgba(12, 12, 20, 0.8);
+  border: 1px solid rgba(0, 242, 254, 0.4);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+}
+
+.drop-zone--top {
+  top: 1rem;
+  left: 20%;
+  right: 20%;
+  height: 90px;
+}
+
+.drop-zone--left {
+  top: 15%;
+  bottom: 15%;
+  left: 330px;
+  width: 140px;
+}
+
+.app-container.sidebar-collapsed .drop-zone--left {
+  left: 1rem;
+}
+
+.drop-zone--right {
+  top: 15%;
+  bottom: 15%;
+  right: 1rem;
+  width: 140px;
+}
+
+/* Genie Squeeze & Unfold Animations */
+.genie-container {
+  will-change: transform, opacity, filter;
+}
+
+.genie-container.is-dragging {
+  box-shadow: 0 25px 50px rgba(0, 0, 0, 0.6), 0 0 30px rgba(0, 242, 254, 0.3);
+  opacity: 0.9;
+  z-index: 1000;
+  cursor: grabbing;
+}
+
+.genie-squeeze-top,
+.genie-squeeze-left,
+.genie-squeeze-right {
+  animation: genieSqueeze 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.genie-unfold-top,
+.genie-unfold-left,
+.genie-unfold-right {
+  animation: genieUnfold 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes genieSqueeze {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(var(--genie-dx), var(--genie-dy), 0) scale(0.05);
+    opacity: 0;
+  }
+}
+
+@keyframes genieUnfold {
+  0% {
+    transform: translate3d(var(--genie-dx), var(--genie-dy), 0) scale(0.05);
+    opacity: 0;
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 1;
+  }
+}
+
+/* DockBar & Dock Pills */
+.dock-bar {
+  display: flex;
+  gap: 0.75rem;
+  z-index: 100;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.dock-bar--top {
+  position: relative;
+  margin-bottom: 1rem;
+  justify-content: flex-start;
+}
+
+.dock-bar--left {
+  position: fixed;
+  left: 335px;
+  top: 50%;
+  transform: translateY(-50%);
+  flex-direction: column;
+}
+
+.app-container.sidebar-collapsed .dock-bar--left {
+  left: 1rem;
+}
+
+.dock-bar--right {
+  position: fixed;
+  right: 1.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  flex-direction: column;
+}
+
+.dock-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.9rem;
+  border-radius: var(--radius-md);
+  background: rgba(20, 20, 36, 0.75);
+  backdrop-filter: blur(16px) saturate(160%);
+  border: 1px solid rgba(0, 242, 254, 0.3);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4), 0 0 15px rgba(0, 242, 254, 0.15);
+  transition: transform 0.25s ease, background-color 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+  animation: geniePillPop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.dock-pill:hover {
+  transform: translateY(-2px) scale(1.05);
+  background: rgba(0, 242, 254, 0.2);
+  border-color: var(--color-accent);
+  box-shadow: 0 12px 25px rgba(0, 0, 0, 0.5), 0 0 25px rgba(0, 242, 254, 0.4);
+}
+
+.dock-pill-icon {
+  display: flex;
+  align-items: center;
+  color: var(--color-accent);
+}
+
+.dock-pill-label {
+  white-space: nowrap;
+}
+
+.dock-pill-restore-hint {
+  font-size: 0.72rem;
+  color: var(--color-accent);
+  opacity: 0.8;
+  background: rgba(0, 242, 254, 0.12);
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  margin-left: 0.2rem;
+}
+
+@keyframes geniePillPop {
+  0% {
+    transform: scale(0.2);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}

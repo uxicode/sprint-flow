@@ -5,6 +5,7 @@ import DashboardHeader from '../dashboard/DashboardHeader';
 import FilterSection from '../dashboard/FilterSection';
 import StatsSection from '../dashboard/StatsSection';
 import ReportSection from '../dashboard/ReportSection';
+import DockBar from '../DockBar';
 import { useUiStore } from '../../stores/ui-store';
 
 interface UiStoreSlice {
@@ -31,6 +32,7 @@ export default function AppShell() {
       <AppSidebar />
 
       <main className="main-content">
+        <DockBar />
         <DashboardHeader />
         <FilterSection />
         <StatsSection />

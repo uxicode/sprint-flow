@@ -14,6 +14,17 @@ export const useUiStore = create<UiStoreSlice>((set, get) => ({
     text: '시뮬레이션 모드 작동 중',
   },
 
+  filterDock: {
+    isDocked: false,
+    position: null,
+    isAnimating: false,
+  },
+  statsDock: {
+    isDocked: false,
+    position: null,
+    isAnimating: false,
+  },
+
   setMounted: (mounted) => set({ mounted }),
   setConfigLoaded: (isConfigLoaded) => set({ isConfigLoaded }),
   setSidebarOpen: (isSidebarOpen) => set({ isSidebarOpen }),
@@ -21,6 +32,33 @@ export const useUiStore = create<UiStoreSlice>((set, get) => ({
   setStatsJqlOpen: (isStatsJqlOpen) => set({ isStatsJqlOpen }),
   setActiveTab: (activeTab: ActiveTab) => set({ activeTab }),
   setConnectionStatus: (connectionStatus: ConnectionStatus) => set({ connectionStatus }),
+
+  setFilterDock: (dock) =>
+    set((state) => ({ filterDock: { ...state.filterDock, ...dock } })),
+  setStatsDock: (dock) =>
+    set((state) => ({ statsDock: { ...state.statsDock, ...dock } })),
+
+  undockSection: (section) => {
+    if (section === 'filter') {
+      set((state) => ({
+        filterDock: { ...state.filterDock, isAnimating: true },
+      }));
+      setTimeout(() => {
+        set({
+          filterDock: { isDocked: false, position: null, isAnimating: false },
+        });
+      }, 400);
+    } else {
+      set((state) => ({
+        statsDock: { ...state.statsDock, isAnimating: true },
+      }));
+      setTimeout(() => {
+        set({
+          statsDock: { isDocked: false, position: null, isAnimating: false },
+        });
+      }, 400);
+    }
+  },
 
   toggleEpicCollapse: (epicKey) => {
     const { expandedEpics } = get();

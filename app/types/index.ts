@@ -446,6 +446,14 @@ export interface JiraSearchResponse {
   nextPageToken?: string;
 }
 
+export type DockDirection = 'top' | 'left' | 'right';
+
+export interface DockState {
+  isDocked: boolean;
+  position: DockDirection | null;
+  isAnimating: boolean;
+}
+
 export interface UiStoreSlice {
   mounted: boolean;
   isConfigLoaded: boolean;
@@ -455,6 +463,8 @@ export interface UiStoreSlice {
   activeTab: ActiveTab;
   expandedEpics: Record<string, boolean>;
   connectionStatus: ConnectionStatus;
+  filterDock: DockState;
+  statsDock: DockState;
   setMounted: (mounted: boolean) => void;
   setConfigLoaded: (loaded: boolean) => void;
   setSidebarOpen: (open: boolean) => void;
@@ -463,6 +473,9 @@ export interface UiStoreSlice {
   setActiveTab: (tab: ActiveTab) => void;
   setConnectionStatus: (status: ConnectionStatus) => void;
   toggleEpicCollapse: (epicKey: string) => void;
+  setFilterDock: (dock: Partial<DockState>) => void;
+  setStatsDock: (dock: Partial<DockState>) => void;
+  undockSection: (section: 'filter' | 'stats') => void;
 }
 
 export interface SettingsStoreSlice {
