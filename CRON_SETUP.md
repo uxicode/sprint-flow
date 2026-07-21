@@ -254,6 +254,9 @@ Vercel Cron은 **UTC 기준**입니다.
 | `GOOGLE_REFRESH_TOKEN` | Google OAuth Refresh Token |
 | `GOOGLE_ACCESS_TOKEN` | **비워도 됨** — Cron 실행 시 refresh token으로 자동 발급 |
 | `SLACK_WEBHOOK_URL` | Slack Incoming Webhook URL (Confluence 등록 완료 알림 전송용) |
+| `ADMIN_USERNAME` | 대시보드 관리자 로그인 아이디 (기본값: `admin`) |
+| `ADMIN_PASSWORD` | 대시보드 관리자 로그인 비밀번호 (기본값: `sprintflow123!`) |
+| `AUTH_SECRET` | 대시보드 세션 암호화 토큰 시크릿 키 (랜덤 문자열) |
 | `CRON_TIMEZONE` | 시간대 (기본: `Asia/Seoul`) |
 
 ### 로컬 `.env.local` 예시
@@ -278,6 +281,8 @@ GOOGLE_CLIENT_SECRET=GOCSPX-...
 GOOGLE_REFRESH_TOKEN=1//...
 GOOGLE_ACCESS_TOKEN=
 
+SLACK_WEBHOOK_URL=https://hooks.slack.com/services/T.../B.../XXXX...
+
 CRON_TIMEZONE=Asia/Seoul
 ```
 
@@ -298,6 +303,15 @@ CRON_TIMEZONE=Asia/Seoul
 2. Vercel에 `GOOGLE_REFRESH_TOKEN` 등록
 3. OAuth 앱이 **Testing** 상태면 refresh token이 **7일 후 만료**될 수 있음 → **Production** 전환 권장
 4. `GOOGLE_ACCESS_TOKEN`은 Vercel env에 **넣지 않아도** Cron이 매 실행마다 자동 갱신
+
+### Slack Incoming Webhook (선택)
+
+Confluence에 일일 보고서가 새로 생성되었을 때 Slack 채널로 알림 메시지(보고서 제목, 바로가기 버튼, 티켓 통계 등)를 자동 전송할 수 있습니다.
+
+1. **Slack API 접속 및 App 생성**: [Slack API Apps](https://api.slack.com/apps) 접속 → **Create New App** → **From scratch** 선택 → App Name(예: `SprintFlow Bot`) 및 대상 워크스페이스 선택 후 **Create App** 클릭.
+2. **Incoming Webhooks 활성화**: 좌측 메뉴 **Features → Incoming Webhooks** 클릭 → **Activate Incoming Webhooks** 스위치 **`On`** 전환.
+3. **Webhook URL 발급**: 하단 **Add New Webhook to Workspace** 클릭 → 알림을 수신할 Slack 채널(예: `#일일보고서`) 선택 후 **Allow (허용)** 클릭.
+4. **Vercel 환경 변수 등록**: 발급된 `https://hooks.slack.com/services/T.../B.../XXXX...` URL을 복사하여 Vercel 및 `.env.local`의 `SLACK_WEBHOOK_URL`에 등록.
 
 ---
 

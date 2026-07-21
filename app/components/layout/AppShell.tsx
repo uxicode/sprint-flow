@@ -1,3 +1,6 @@
+'use client';
+
+import { useEffect, useState } from 'react';
 import clsx from 'clsx';
 import ChevronIcon from '../icons/ChevronIcon';
 import AppSidebar from './AppSidebar';
@@ -6,6 +9,7 @@ import FilterSection from '../dashboard/FilterSection';
 import StatsSection from '../dashboard/StatsSection';
 import ReportSection from '../dashboard/ReportSection';
 import DockBar from '../DockBar';
+import LoginScreen from '../auth/LoginScreen';
 import { useUiStore } from '../../stores/ui-store';
 
 interface UiStoreSlice {
@@ -16,6 +20,49 @@ interface UiStoreSlice {
 export default function AppShell() {
   const isSidebarOpen = useUiStore((s) => (s as UiStoreSlice).isSidebarOpen);
   const setSidebarOpen = useUiStore((s) => (s as UiStoreSlice).setSidebarOpen);
+
+  const [authChecked, setAuthChecked] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  const checkAuth = async () => {
+    try {
+      const res = await fetch('/api/auth/check');
+      const data = await res.json();
+      setIsAuthenticated(!!data.authenticated);
+    } catch (err) {
+      console.error('인증 확인 오류:', err);
+      setIsAuthenticated(false);
+    } finally {
+      setAuthChecked(true);
+    }
+  };
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    checkAuth();
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch (err) {
+      console.error('로그아웃 오류:', err);
+    } finally {
+      setIsAuthenticated(false);
+    }
+  };
+
+  if (!authChecked) {
+    return (
+      <div className="hydration-placeholder" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>
+        <div className="login-loading-spinner" style={{ width: 32, height: 32, borderColor: 'rgba(255,255,255,0.1)', borderTopColor: '#00f2fe' }}></div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <LoginScreen onLoginSuccess={() => setIsAuthenticated(true)} />;
+  }
 
   return (
     <div className={clsx('app-container', !isSidebarOpen && 'sidebar-collapsed')}>
@@ -29,7 +76,7 @@ export default function AppShell() {
         <ChevronIcon />
       </button>
 
-      <AppSidebar />
+      <AppSidebar onLogout={handleLogout} />
 
       <main className="main-content">
         <DockBar />
