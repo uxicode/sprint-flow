@@ -476,6 +476,7 @@ export interface UiStoreSlice {
   setFilterDock: (dock: Partial<DockState>) => void;
   setStatsDock: (dock: Partial<DockState>) => void;
   undockSection: (section: 'filter' | 'stats') => void;
+  dockAllSections: (position?: DockDirection) => void;
 }
 
 export interface SettingsStoreSlice {

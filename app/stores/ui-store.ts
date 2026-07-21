@@ -60,6 +60,19 @@ export const useUiStore = create<UiStoreSlice>((set, get) => ({
     }
   },
 
+  dockAllSections: (position = 'top') => {
+    set((state) => ({
+      filterDock: { ...state.filterDock, position, isAnimating: true },
+      statsDock: { ...state.statsDock, position, isAnimating: true },
+    }));
+    setTimeout(() => {
+      set((state) => ({
+        filterDock: { ...state.filterDock, isDocked: true, isAnimating: false },
+        statsDock: { ...state.statsDock, isDocked: true, isAnimating: false },
+      }));
+    }, 400);
+  },
+
   toggleEpicCollapse: (epicKey) => {
     const { expandedEpics } = get();
     set({

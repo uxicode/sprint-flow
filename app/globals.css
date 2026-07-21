@@ -434,6 +434,26 @@ input:checked+.slider:before {
   margin-top: 0.25rem;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.btn-fly-all {
+  background: rgba(0, 242, 254, 0.08);
+  border: 1px solid rgba(0, 242, 254, 0.3);
+  color: var(--color-accent);
+  transition: all 0.2s ease;
+}
+
+.btn-fly-all:hover:not(:disabled) {
+  background: rgba(0, 242, 254, 0.18);
+  border-color: var(--color-accent);
+  box-shadow: 0 0 15px rgba(0, 242, 254, 0.3);
+  transform: translateY(-2px);
+}
+
 .quick-status {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.35);
@@ -2797,9 +2817,9 @@ select.select-input:focus {
   width: 140px;
 }
 
-/* Genie Squeeze & Unfold Animations */
+/* Genie Container Styles */
 .genie-container {
-  will-change: transform, opacity, filter;
+  will-change: transform, opacity;
 }
 
 .genie-container.is-dragging {
@@ -2807,40 +2827,6 @@ select.select-input:focus {
   opacity: 0.9;
   z-index: 1000;
   cursor: grabbing;
-}
-
-.genie-squeeze-top,
-.genie-squeeze-left,
-.genie-squeeze-right {
-  animation: genieSqueeze 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-.genie-unfold-top,
-.genie-unfold-left,
-.genie-unfold-right {
-  animation: genieUnfold 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-@keyframes genieSqueeze {
-  0% {
-    transform: translate3d(0, 0, 0) scale(1);
-    opacity: 1;
-  }
-  100% {
-    transform: translate3d(var(--genie-dx), var(--genie-dy), 0) scale(0.05);
-    opacity: 0;
-  }
-}
-
-@keyframes genieUnfold {
-  0% {
-    transform: translate3d(var(--genie-dx), var(--genie-dy), 0) scale(0.05);
-    opacity: 0;
-  }
-  100% {
-    transform: translate3d(0, 0, 0) scale(1);
-    opacity: 1;
-  }
 }
 
 /* DockBar & Dock Pills */
