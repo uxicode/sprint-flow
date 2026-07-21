@@ -6,6 +6,7 @@ import { getCronConfig, validateCronConfig } from './config';
 import { fetchJiraTicketsServer } from './jira';
 import { fetchCalendarEventsServer } from './calendar';
 import { publishConfluencePage } from './confluence';
+import { sendSlackNotification } from './slack';
 import type { CalendarEvent, DailyReportJobResult, ReportParams } from '../../types';
 
 dayjs.extend(utc);
@@ -107,11 +108,28 @@ export async function runDailyReportJob(): Promise<DailyReportJobResult> {
     markdown: dailyReportMd,
   });
 
+  let slackNotified = false;
+  if (config.slackWebhookUrl) {
+    console.log('[Cron] Slack 알림 전송 시작...');
+    slackNotified = await sendSlackNotification({
+      webhookUrl: config.slackWebhookUrl,
+      reportTitle,
+      confluenceUrl: published.url,
+      stats: {
+        currentTickets: currentTickets.length,
+        nextTickets: nextTickets.length,
+        calendarEvents: calendarEvents.length,
+        dateRange: { start, end },
+      },
+    });
+  }
+
   return {
     success: true,
     reportTitle,
     confluenceUrl: published.url,
     confluencePageId: published.pageId,
+    slackNotified,
     stats: {
       currentTickets: currentTickets.length,
       nextTickets: nextTickets.length,

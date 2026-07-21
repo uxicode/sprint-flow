@@ -128,6 +128,7 @@ export default function PerformanceAnalytics({
   // 시작/종료일과 프리셋 동기화
   useEffect(() => {
     if (!dateStart || !dateEnd) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPeriodPreset(detectPeriodPreset(dateStart, dateEnd));
   }, [dateStart, dateEnd]);
 
@@ -138,6 +139,7 @@ export default function PerformanceAnalytics({
 
   // 티켓 데이터가 새로 조회되면 제외 목록 초기화
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setExcludedTicketKeys(new Set());
   }, [periodTickets]);
 
@@ -396,7 +398,7 @@ export default function PerformanceAnalytics({
             <path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
           </svg>
           <h3>분석할 데이터가 없습니다</h3>
-          <p>상단의 조회 기간을 확인하신 후 '조회' 버튼을 클릭해 주세요.</p>
+          <p>상단의 조회 기간을 확인하신 후 &apos;조회&apos; 버튼을 클릭해 주세요.</p>
         </div>
       ) : (
         <>

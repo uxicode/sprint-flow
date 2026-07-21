@@ -253,6 +253,7 @@ Vercel Cron은 **UTC 기준**입니다.
 | `GOOGLE_CLIENT_SECRET` | Google OAuth Client Secret |
 | `GOOGLE_REFRESH_TOKEN` | Google OAuth Refresh Token |
 | `GOOGLE_ACCESS_TOKEN` | **비워도 됨** — Cron 실행 시 refresh token으로 자동 발급 |
+| `SLACK_WEBHOOK_URL` | Slack Incoming Webhook URL (Confluence 등록 완료 알림 전송용) |
 | `CRON_TIMEZONE` | 시간대 (기본: `Asia/Seoul`) |
 
 ### 로컬 `.env.local` 예시

@@ -66,6 +66,7 @@ export function getCronConfig(): CronConfig {
     googleClientSecret: process.env.GOOGLE_CLIENT_SECRET?.trim() || '',
     googleRefreshToken: process.env.GOOGLE_REFRESH_TOKEN?.trim() || '',
     googleAccessToken: process.env.GOOGLE_ACCESS_TOKEN?.trim() || '',
+    slackWebhookUrl: process.env.SLACK_WEBHOOK_URL?.trim() || undefined,
   };
 }
 

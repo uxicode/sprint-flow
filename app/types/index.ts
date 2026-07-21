@@ -363,6 +363,7 @@ export interface CronConfig {
   googleClientSecret: string;
   googleRefreshToken: string;
   googleAccessToken: string;
+  slackWebhookUrl?: string;
 }
 
 export interface ServerCalendarFetchParams {
@@ -387,6 +388,7 @@ export interface DailyReportJobResult {
   reportTitle: string;
   confluenceUrl: string;
   confluencePageId: string;
+  slackNotified?: boolean;
   stats: {
     currentTickets: number;
     nextTickets: number;
