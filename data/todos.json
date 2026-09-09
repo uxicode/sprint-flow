@@ -618,5 +618,16 @@
     "color": "#3b82f6",
     "notes": "",
     "location": ""
+  },
+  {
+    "id": "todo-1788931352901-thgyu",
+    "title": "솔라시도 점검 회의",
+    "date": "2026-09-09",
+    "startHour": 11,
+    "endHour": 12,
+    "category": "할 일",
+    "color": "#3b82f6",
+    "notes": "",
+    "location": ""
   }
 ]
