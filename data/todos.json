@@ -625,8 +625,8 @@
     "date": "2026-09-09",
     "startHour": 11,
     "endHour": 12,
-    "category": "할 일",
-    "color": "#3b82f6",
+    "category": "일정",
+    "color": "#0d9488",
     "notes": "",
     "location": ""
   }
