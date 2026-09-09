@@ -640,5 +640,16 @@
     "color": "#0d9488",
     "notes": "",
     "location": ""
+  },
+  {
+    "id": "todo-1788931415943-u4es0",
+    "title": "[점검회의] 시니허그",
+    "date": "2026-09-09",
+    "startHour": 15,
+    "endHour": 16,
+    "category": "일정",
+    "color": "#0d9488",
+    "notes": "",
+    "location": ""
   }
 ]
