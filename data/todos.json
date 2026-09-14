@@ -673,5 +673,16 @@
     "color": "#3b82f6",
     "notes": "",
     "location": ""
+  },
+  {
+    "id": "todo-1789369005590-tawub",
+    "title": "개발본부 주간회의",
+    "date": "2026-09-14",
+    "startHour": 10,
+    "endHour": 11,
+    "category": "할 일",
+    "color": "#3b82f6",
+    "notes": "",
+    "location": ""
   }
 ]
