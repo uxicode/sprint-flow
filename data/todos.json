@@ -739,5 +739,16 @@
     "color": "#3b82f6",
     "notes": "",
     "location": ""
+  },
+  {
+    "id": "todo-1789438642487-54czb",
+    "title": "솔라시도 도메인 신청",
+    "date": "2026-09-15",
+    "startHour": 13,
+    "endHour": 14,
+    "category": "할 일",
+    "color": "#3b82f6",
+    "notes": "",
+    "location": ""
   }
 ]
