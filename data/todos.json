@@ -772,5 +772,16 @@
     "color": "#3b82f6",
     "notes": "",
     "location": ""
+  },
+  {
+    "id": "todo-1790831206208-qywxx",
+    "title": "통합테스트 체크",
+    "date": "2026-10-01",
+    "startHour": 15,
+    "endHour": 17,
+    "category": "할 일",
+    "color": "#3b82f6",
+    "notes": "",
+    "location": ""
   }
 ]
