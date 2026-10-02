@@ -40,6 +40,7 @@ export function useReportActions() {
   const setActiveTab = useTypedUiStore((s) => s.setActiveTab);
   const dailyReportMd = useTypedReportStore((s) => s.dailyReportMd);
   const weeklyReportMd = useTypedReportStore((s) => s.weeklyReportMd);
+  const etcReportMd = useTypedReportStore((s) => s.etcReportMd);
   const vacationList = useTypedReportStore((s) => s.vacationList);
   const dateStart = useTypedFilterStore((s) => s.dateStart);
   const dateEnd = useTypedFilterStore((s) => s.dateEnd);
@@ -69,6 +70,8 @@ export function useReportActions() {
     if (activeTab === 'tab-daily') txt = dailyReportMd;
     else if (activeTab === 'tab-weekly') {
       txt = applyWeeklyReportFilter(weeklyReportMd, searchKeyword || '', tagFilters, epicSortOrder);
+    } else if (activeTab === 'tab-etc') {
+      txt = etcReportMd;
     } else {
       alert('복사할 마크다운 보고서 탭을 선택해 주세요.');
       return;
@@ -133,6 +136,9 @@ export function useReportActions() {
       } finally {
         setIsDownloading(false);
       }
+    } else if (activeTab === 'tab-etc') {
+      txt = etcReportMd;
+      name = `Other_Report_${dateStart}_to_${dateEnd}.md`;
     } else {
       alert('다운로드할 보고서 탭을 선택해 주세요.');
       return;
@@ -217,8 +223,11 @@ export function useReportActions() {
     } else if (activeTab === 'tab-weekly') {
       reportText = applyWeeklyReportFilter(weeklyReportMd, searchKeyword || '', tagFilters, epicSortOrder);
       reportTitle = `📊 [주간업무] ${dayjs(dateStart).format('YYYY.MM.DD')} ~ ${dayjs(dateEnd).format('YYYY.MM.DD')}`;
+    } else if (activeTab === 'tab-etc') {
+      reportText = etcReportMd;
+      reportTitle = `📌 [기타업무] ${dayjs(dateStart).format('YYYY.MM.DD')} ~ ${dayjs(dateEnd).format('YYYY.MM.DD')}`;
     } else {
-      alert('컨플루언스에 등록할 보고서 탭(일일 혹은 주간)을 선택해 주세요.');
+      alert('컨플루언스에 등록할 보고서 탭(일일, 주간 또는 기타)을 선택해 주세요.');
       return;
     }
 
@@ -311,6 +320,7 @@ export function useReportActions() {
     handleTabChange,
     dailyReportMd,
     weeklyReportMd,
+    etcReportMd,
     tickets,
     parseMarkdownToHtml,
     handleCopyReport,

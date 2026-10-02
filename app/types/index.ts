@@ -34,7 +34,7 @@ export interface ConnectionStatus {
 
 export type CalendarAuthStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
-export type ActiveTab = 'tab-daily' | 'tab-weekly' | 'tab-raw' | 'tab-schedule';
+export type ActiveTab = 'tab-daily' | 'tab-weekly' | 'tab-etc' | 'tab-raw' | 'tab-schedule';
 
 export interface DashboardFilter {
   projectKey: string;
@@ -127,6 +127,7 @@ export interface ResolvedSettings {
 export interface GeneratedReports {
   dailyReportMd: string;
   weeklyReportMd: string;
+  etcReportMd: string;
 }
 
 export interface CalendarMeta {
@@ -589,10 +590,12 @@ export interface FilterStoreSlice {
 export interface ReportStoreSlice {
   dailyReportMd: string;
   weeklyReportMd: string;
+  etcReportMd: string;
   vacationList: CalendarEvent[] | string[];
   setReports: (reports: {
     dailyReportMd: string;
     weeklyReportMd: string;
+    etcReportMd?: string;
     calendarEvents: CalendarEvent[] | string[];
   }) => void;
   resetReports: () => void;

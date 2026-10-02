@@ -89,7 +89,7 @@ export async function fetchJiraTickets(
       : '미지정',
     updated: issue.fields?.updated ? issue.fields.updated.substring(0, 10) : '',
     created: issue.fields?.created ? issue.fields.created.substring(0, 10) : '',
-    duedate: issue.fields?.duedate ? issue.fields.duedate : dayjs().format('YYYY-MM-DD'),
+    duedate: issue.fields?.duedate ? issue.fields.duedate : '',
     epic: issue.fields?.parent
       ? {
           key: issue.fields.parent.key || '',

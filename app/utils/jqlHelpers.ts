@@ -11,6 +11,7 @@ export function buildJql(
     .setProject(projectKey)
     .setAssignees(teamMembers)
     .setDateRange(dateStart, dateEnd, 'duedate')
+    .setIncludeUnscheduled(true)
     .build();
 }
 

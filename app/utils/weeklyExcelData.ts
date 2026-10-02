@@ -1,5 +1,5 @@
 import dayjs from 'dayjs';
-import { getStatusCategory } from './jira';
+import { getStatusCategory, isOtherEpicTicket } from './jira';
 import type { Ticket, WeeklyExcelPayload } from '../types';
 
 const AREA_LABEL: Record<string, string> = {
@@ -74,11 +74,13 @@ export function buildWeeklyExcelPayload(
   dateStart: string,
   dateEnd: string,
 ): WeeklyExcelPayload {
+  const standardTickets = tickets.filter(t => !isOtherEpicTicket(t));
+  const standardNextTickets = nextTickets.filter(t => !isOtherEpicTicket(t));
   return {
     dateStart,
     dateEnd,
-    previousWeekText: buildGroupedReportText(tickets),
-    nextWeekPlanText: buildGroupedReportText(nextTickets),
+    previousWeekText: buildGroupedReportText(standardTickets),
+    nextWeekPlanText: buildGroupedReportText(standardNextTickets),
   };
 }
 

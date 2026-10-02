@@ -1,5 +1,5 @@
 import dayjs from 'dayjs';
-import { getStatusCategory, getMemberVacationDates, getVacationMembers, applyWeeklyReportFilter } from './jira';
+import { getStatusCategory, getMemberVacationDates, getVacationMembers, applyWeeklyReportFilter, isOtherEpicTicket } from './jira';
 import { buildEpicScheduleData, buildEpicSummaryTable, getEpicDueDateRange, formatGroupProgressBadge, formatEpicScheduleMeta } from './schedule';
 import type { CalendarEvent, BuildWeeklyDownloadParams, EpicGroup, EpicScheduleItem, Ticket } from '../types';
 
@@ -41,9 +41,9 @@ function renderEpicSection(
       summary = summary.replace(/\((?:BE|FE|MO)\)\s*/gi, '').trim();
 
       const updatedDate = t.updated ? dayjs(t.updated) : null;
-      const dueDate = t.duedate ? dayjs(t.duedate) : dayjs();
+      const dueDate = t.duedate ? dayjs(t.duedate) : null;
       const targetDate = updatedDate && updatedDate.isValid() ? updatedDate : dueDate;
-      const dateStr = `${targetDate.month() + 1}/${targetDate.date()}`;
+      const dateStr = targetDate && targetDate.isValid() ? `${targetDate.month() + 1}/${targetDate.date()}` : '미산정';
 
       if (includeStatus) {
         const cat = getStatusCategory(t.status);
@@ -252,9 +252,10 @@ export function buildWeeklyDownloadMarkdown(params: BuildWeeklyDownloadParams): 
   let baseMd = weeklyReportMd;
 
   // 마크다운 표 생성 대상 티켓 선정 (누적 scheduleTickets가 있으면 최우선, 없으면 일반 tickets)
-  const progressSourceTickets = (scheduleTickets && scheduleTickets.length > 0)
+  const rawProgressTickets = (scheduleTickets && scheduleTickets.length > 0)
     ? scheduleTickets
     : tickets;
+  const progressSourceTickets = (rawProgressTickets || []).filter(t => !isOtherEpicTicket(t));
 
   // 만약 기존 마크다운에 "에픽별 진행 현황" 표가 없다면 보충
   if (progressSourceTickets && progressSourceTickets.length > 0 && !baseMd.includes('에픽별 진행 현황')) {

@@ -97,6 +97,7 @@ export function useDashboardData() {
     setReports({
       dailyReportMd: query.data.reports.dailyReportMd,
       weeklyReportMd: query.data.reports.weeklyReportMd,
+      etcReportMd: query.data.reports.etcReportMd,
       calendarEvents: query.data.calendarEvents,
     });
     setConnectionStatus({ dot: 'success', text: query.data.statusText });

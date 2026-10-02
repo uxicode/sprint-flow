@@ -27,10 +27,13 @@ export function generateMockTickets(
   const mainProjKey = projects.length > 0 ? projects[0] : 'PROJ';
 
   const statusOptions = ['Done', 'In Progress', 'To Do'];
-  const dummyEpics: EpicRef[] = [
+  const dummyEpics: (EpicRef | null)[] = [
     { key: `${mainProjKey}-10`, summary: '웹 대시보드 리팩토링 및 현대화' },
     { key: `${mainProjKey}-20`, summary: 'Jira & Confluence 오픈 API 연동' },
     { key: `${mainProjKey}-30`, summary: 'UI/UX 고도화 및 사용자 경험 개선' },
+    { key: `${mainProjKey}-40`, summary: '모니터링 중' },
+    { key: `${mainProjKey}-50`, summary: '미합의 요구사항' },
+    null,
   ];
   const result: Ticket[] = [];
 
@@ -50,18 +53,19 @@ export function generateMockTickets(
   targetMembers.forEach((member) => {
     const memberSeed = member.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
     const isLongRange = dateArray.length > 30;
-    const ticketCount = isLongRange ? 20 : 3;
+    const ticketCount = isLongRange ? 20 : 4;
 
     for (let i = 0; i < ticketCount; i++) {
       const dummySummary = dummyTaskPool[(memberSeed + i) % dummyTaskPool.length];
       const dummyStatus = statusOptions[i % statusOptions.length];
-      const dummyEpic = dummyEpics[(memberSeed + i) % dummyEpics.length];
+      const dummyEpic = dummyEpics[(memberSeed + i) % dummyEpics.length] || null;
       const dateIndex = isLongRange
         ? Math.floor((i * dateArray.length) / ticketCount)
         : (i % dateArray.length);
       const dummyDate = dateArray[dateIndex];
       const offsetDays = (memberSeed + i) % 3 === 0 ? 0 : 5;
-      const dummyDuedate = dayjs(dummyDate).add(offsetDays, 'day').format('YYYY-MM-DD');
+      const isUnscheduled = (memberSeed + i) % 3 === 1;
+      const dummyDuedate = isUnscheduled ? '' : dayjs(dummyDate).add(offsetDays, 'day').format('YYYY-MM-DD');
       const currentProj = projects[(memberSeed + i) % projects.length] || mainProjKey;
 
       result.push({

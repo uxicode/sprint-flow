@@ -72,6 +72,7 @@ export default function ReportSection() {
     handleTabChange,
     dailyReportMd,
     weeklyReportMd,
+    etcReportMd,
     tickets,
     parseMarkdownToHtml,
     handleCopyReport,
@@ -195,6 +196,9 @@ export default function ReportSection() {
             </TabButton>
             <TabButton isActive={activeTab === 'tab-weekly'} onClick={() => handleTabChange('tab-weekly')} disabled={isDownloading || isUpdatingExcel}>
               주간 업무
+            </TabButton>
+            <TabButton isActive={activeTab === 'tab-etc'} onClick={() => handleTabChange('tab-etc')} disabled={isDownloading || isUpdatingExcel}>
+              기타 업무
             </TabButton>
             <TabButton isActive={activeTab === 'tab-raw'} onClick={() => handleTabChange('tab-raw')} disabled={isDownloading || isUpdatingExcel}>
               조회된 티켓 목록
@@ -414,6 +418,9 @@ export default function ReportSection() {
               </TabPanel>
               <TabPanel isActive={activeTab === 'tab-weekly'}>
                 <MarkdownReportView html={parseMarkdownToHtml(processedWeeklyMd)} />
+              </TabPanel>
+              <TabPanel isActive={activeTab === 'tab-etc'}>
+                <MarkdownReportView html={parseMarkdownToHtml(etcReportMd)} />
               </TabPanel>
               <TabPanel isActive={activeTab === 'tab-raw'}>
                 <TicketTable tickets={tickets} />

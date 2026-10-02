@@ -1,4 +1,4 @@
-import { DailyReportStrategy, ReportContext, WeeklyReportStrategy } from '../utils/jira';
+import { DailyReportStrategy, EtcReportStrategy, ReportContext, WeeklyReportStrategy } from '../utils/jira';
 import type { CalendarEvent, GeneratedReports, ReportParams } from '../types';
 
 export function generateReports({
@@ -26,9 +26,11 @@ export function generateReports({
 
   const dailyContext = new ReportContext(new DailyReportStrategy());
   const weeklyContext = new ReportContext(new WeeklyReportStrategy());
+  const etcContext = new ReportContext(new EtcReportStrategy());
 
   return {
     dailyReportMd: dailyContext.generate(reportParams),
     weeklyReportMd: weeklyContext.generate(reportParams),
+    etcReportMd: etcContext.generate(reportParams),
   };
 }

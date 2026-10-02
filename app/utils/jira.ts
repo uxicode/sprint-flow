@@ -176,6 +176,7 @@ export class JqlQueryBuilder {
   endDate: string;
   orderByField: string;
   orderDirection: string;
+  includeUnscheduled: boolean;
 
   constructor() {
     this.project = 'PROJ';
@@ -186,6 +187,7 @@ export class JqlQueryBuilder {
     this.endDate = '';
     this.orderByField = 'updated';
     this.orderDirection = 'DESC';
+    this.includeUnscheduled = false;
   }
 
   setProject(project: string): this {
@@ -208,6 +210,11 @@ export class JqlQueryBuilder {
     this.endDate = endDate;
     this.dateField = dateField;
     this.orderByField = dateField;
+    return this;
+  }
+
+  setIncludeUnscheduled(include = true): this {
+    this.includeUnscheduled = include;
     return this;
   }
 
@@ -245,7 +252,11 @@ export class JqlQueryBuilder {
     // 날짜 범위가 있을 경우
     if (this.startDate && this.endDate) {
       if (this.dateField === 'duedate') {
-        jql += ` AND duedate >= "${this.startDate}" AND duedate <= "${this.endDate}"`;
+        if (this.includeUnscheduled) {
+          jql += ` AND ((duedate >= "${this.startDate}" AND duedate <= "${this.endDate}") OR (duedate is EMPTY AND (statusCategory != Done OR updated >= "${this.startDate}")))`;
+        } else {
+          jql += ` AND duedate >= "${this.startDate}" AND duedate <= "${this.endDate}"`;
+        }
       } else if (this.dateField === 'updated') {
         jql += ` AND updated >= "${this.startDate}" AND updated <= "${this.endDate} 23:59"`;
       } else {
@@ -287,7 +298,7 @@ export const TicketMarkdownRenderer = {
     if (showStatus) details.push(`\`${ticket.status}\``);
     if (showUpdate) {
       const formatStr = dateFormat === 'MM/DD' ? 'MM/DD' : 'YYYY.MM.DD';
-      const dueDate = ticket.duedate ? dayjs(ticket.duedate).format(formatStr) : dayjs().format(formatStr);
+      const dueDate = ticket.duedate ? dayjs(ticket.duedate).format(formatStr) : '일정 미산정';
       details.push(`기한: ${dueDate}`);
     }
     if (showAssignee && ticket.assignee) {
@@ -330,6 +341,21 @@ export const TicketMarkdownRenderer = {
   }
 };
 
+// 에픽이 '모니터링 중', '미합의 요구사항'이거나 에픽이 없는 티켓인지 판별
+export function isOtherEpicTicket(ticket: Ticket): boolean {
+  if (!ticket.epic || !ticket.epic.key || ticket.epic.key === 'NO_EPIC') {
+    return true;
+  }
+  const epicSummary = (ticket.epic.summary || '').toLowerCase().replace(/\s+/g, '');
+  if (epicSummary.includes('모니터링중') || epicSummary.includes('모니터링')) {
+    return true;
+  }
+  if (epicSummary.includes('미합의요구사항') || epicSummary.includes('미합의')) {
+    return true;
+  }
+  return false;
+}
+
 // 일일 업무 보고서 생성 전략
 export class DailyReportStrategy extends ReportStrategy {
   generate(reportParams: ReportParams): string {
@@ -349,9 +375,13 @@ export class DailyReportStrategy extends ReportStrategy {
     dailyMd += `> **생성 일시**: ${dayjs().tz('Asia/Seoul').format('YYYY.MM.DD HH:mm:ss')}\n\n`;
 
     // 진행 중 티켓은 오늘 갱신 여부와 무관하게 항상 노출(현재 작업 현황),
+    // 일정 미산정 티켓(!t.duedate)도 누락 방지를 위해 일일 업무에 노출,
     // 그 외(완료 등)는 오늘 작업했거나 오늘 기한인 경우에만 노출
+    // (단, '모니터링 중', '미합의 요구사항', '에픽 없음' 티켓은 기타 업무로 분리되어 제외)
     const dailyTickets = currList.filter(t => {
+      if (isOtherEpicTicket(t)) return false;
       if (getStatusCategory(t.status) === 'In Progress') return true;
+      if (!t.duedate) return true;
       return t.updated === todayStr || t.duedate === todayStr;
     });
 
@@ -363,7 +393,7 @@ export class DailyReportStrategy extends ReportStrategy {
     const allDailyMembers = [...members, ...vacationOnlyMembers];
 
     if (allDailyMembers.length === 0) {
-      dailyMd += `오늘 작업했거나 기한인 진행 중/완료 티켓이 없습니다.\n`;
+      dailyMd += `오늘 작업했거나 기한인 진행 중/완료 티켓 또는 일정 미산정 티켓이 없습니다.\n`;
     } else {
       // 담당자 별로 티켓 목록 생성
       allDailyMembers.forEach(member => {
@@ -407,7 +437,22 @@ export class DailyReportStrategy extends ReportStrategy {
           showUpdate: true,
           showEpic: true,
         });
-        dailyMd += `\n---\n\n`;
+        dailyMd += `\n`;
+
+        // 대기 및 예정 업무 (To Do) 목록 렌더링 (일정 미산정 또는 오늘 예정 티켓)
+        const todoTickets = memberTickets.filter(t => getStatusCategory(t.status) === 'To Do');
+        if (todoTickets.length > 0) {
+          dailyMd += TicketMarkdownRenderer.renderGroup(memberTickets, jiraUrl, {
+            category: 'To Do',
+            title: '### ⏱️ 대기 및 예정 업무 (To Do)',
+            emptyMessage: '대기 중인 업무가 없습니다.',
+            bullet: '- ',
+            showUpdate: true,
+            showEpic: true,
+          });
+          dailyMd += `\n`;
+        }
+        dailyMd += `---\n\n`;
       });
     }
     return dailyMd;
@@ -424,8 +469,13 @@ export class WeeklyReportStrategy extends ReportStrategy {
         : getVacationMembers(rawEvents, start, end, targetRegs))
       : [];
 
+    // 에픽이 '모니터링 중', '미합의 요구사항'이거나 에픽 없는 티켓은 주간 업무에서 분리 제외
+    const standardCurrList = currList.filter(t => !isOtherEpicTicket(t));
+    const standardNextList = nextList.filter(t => !isOtherEpicTicket(t));
+    const standardScheduleTickets = (scheduleTickets || []).filter(t => !isOtherEpicTicket(t));
+
     // 기한(duedate)이 지정된 경우, 기한 날짜가 선택된 start ~ end 범위에 속하는 티켓만 엄격 선별
-    const filteredCurrList = currList.filter(t => {
+    const filteredCurrList = standardCurrList.filter(t => {
       if (!t.duedate) return true;
       const due = dayjs(t.duedate).format('YYYY-MM-DD');
       return due >= start && due <= end;
@@ -453,9 +503,9 @@ export class WeeklyReportStrategy extends ReportStrategy {
     weeklyMd += `| **대기 중 (To Do)** | ${todoCount}건 | ${total > 0 ? Math.round((todoCount / total) * 100) : 0}% |\n`;
     weeklyMd += `| **합계 (Total)** | **${total}건** | **100%** |\n\n`;
 
-    // 에픽별 진행 현황은 올해 전체 누적 데이터(scheduleTickets) 기준으로 측정
-    const progressSourceTickets = (scheduleTickets && scheduleTickets.length > 0)
-      ? scheduleTickets
+    // 에픽별 진행 현황은 올해 전체 누적 데이터(standardScheduleTickets) 기준으로 측정
+    const progressSourceTickets = (standardScheduleTickets.length > 0)
+      ? standardScheduleTickets
       : filteredCurrList;
 
     const epicSchedules = buildEpicScheduleData(progressSourceTickets);
@@ -524,12 +574,12 @@ export class WeeklyReportStrategy extends ReportStrategy {
     }
 
     weeklyMd += `## 🚀 4. 다음 주 할 일 목록 (주요 계획 및 이슈)\n\n`;
-    if (nextList.length === 0) {
+    if (standardNextList.length === 0) {
       weeklyMd += `* **마일스톤 점검**: 다음 주 예정된 지라 티켓이 등록되어 있지 않거나 계획을 불러올 수 없습니다.\n`;
       weeklyMd += `* **장애 요인**: 예정된 주요 마일스톤에 지연 요소가 없는지 리스크 사전 점검.\n`;
     } else {
       const nextEpicsMap: Record<string, { key: string; summary: string; tickets: Ticket[] }> = {};
-      nextList.forEach(t => {
+      standardNextList.forEach(t => {
         const epicKey = t.epic ? t.epic.key : 'NO_EPIC';
         const epicSummary = t.epic ? t.epic.summary : '에픽 없음 (기타 계획)';
         if (!nextEpicsMap[epicKey]) {
@@ -553,7 +603,7 @@ export class WeeklyReportStrategy extends ReportStrategy {
         epic.tickets.forEach(t => {
           const cat = getStatusCategory(t.status);
           const stateSymbol = cat === 'Done' ? '🟢 [완료예정]' : cat === 'In Progress' ? '🔄 [진행예정]' : '⏱️ [할일]';
-          const dueDate = t.duedate ? dayjs(t.duedate).format('MM/DD') : dayjs().format('MM/DD');
+          const dueDate = t.duedate ? dayjs(t.duedate).format('MM/DD') : '일정 미산정';
           const assigneeStr = t.assignee ? `, 담당자: ${t.assignee}` : '';
           weeklyMd += `* ${stateSymbol} [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key, jiraUrl)}) (\`${t.status}\`, 기한: ${dueDate}${assigneeStr})\n`;
         });
@@ -562,6 +612,115 @@ export class WeeklyReportStrategy extends ReportStrategy {
     }
 
     return weeklyMd;
+  }
+}
+
+// 기타 업무 보고서 생성 전략 (에픽이 모니터링 중, 미합의 요구사항이거나 에픽 없는 업무)
+export class EtcReportStrategy extends ReportStrategy {
+  generate(reportParams: ReportParams): string {
+    const { currList, nextList, start, end, proj, jiraUrl } = reportParams;
+    const etcCurrList = currList.filter(t => isOtherEpicTicket(t));
+    const etcNextList = nextList.filter(t => isOtherEpicTicket(t));
+
+    const total = etcCurrList.length;
+    const completedCount = etcCurrList.filter(t => getStatusCategory(t.status) === 'Done').length;
+    const progressingCount = etcCurrList.filter(t => getStatusCategory(t.status) === 'In Progress').length;
+    const todoCount = total - completedCount - progressingCount;
+
+    const displayStart = dayjs(start).format('YYYY.MM.DD');
+    const displayEnd = dayjs(end).format('YYYY.MM.DD');
+
+    let etcMd = `# 📌 기타 업무 보고서 (모니터링 / 미합의 / 기타)\n\n`;
+    etcMd += `> **대상 기간**: ${displayStart} ~ ${displayEnd}\n`;
+    etcMd += `> **프로젝트 코드**: \`${proj}\`\n`;
+    etcMd += `> **안내**: 에픽이 '모니터링 중', '미합의 요구사항'이거나 에픽이 지정되지 않은 업무 목록입니다.\n\n`;
+
+    etcMd += `### 📈 기타 업무 진행 메트릭스\n\n`;
+    etcMd += `| 티켓 상태 | 건수 | 완료율 / 비율 |\n`;
+    etcMd += `|---|---|---|\n`;
+    etcMd += `| **완료 (Done/Resolved)** | ${completedCount}건 | ${total > 0 ? Math.round((completedCount / total) * 100) : 0}% |\n`;
+    etcMd += `| **진행 중 (In Progress)** | ${progressingCount}건 | ${total > 0 ? Math.round((progressingCount / total) * 100) : 0}% |\n`;
+    etcMd += `| **대기 중 (To Do)** | ${todoCount}건 | ${total > 0 ? Math.round((todoCount / total) * 100) : 0}% |\n`;
+    etcMd += `| **합계 (Total)** | **${total}건** | **100%** |\n\n`;
+
+    etcMd += `## 📋 1. 에픽별 상세 내역 (모니터링 / 미합의 / 에픽 없음)\n\n`;
+
+    if (etcCurrList.length === 0) {
+      etcMd += `* 조회 기간 내 등록된 기타 업무 티켓이 없습니다.\n\n`;
+    } else {
+      const epicsMap: Record<string, { key: string; summary: string; tickets: Ticket[] }> = {};
+      etcCurrList.forEach(t => {
+        const epicKey = t.epic && t.epic.key ? t.epic.key : 'NO_EPIC';
+        const epicSummary = t.epic && t.epic.summary ? t.epic.summary : '에픽 없음 (기타 업무)';
+        if (!epicsMap[epicKey]) {
+          epicsMap[epicKey] = { key: epicKey, summary: epicSummary, tickets: [] };
+        }
+        epicsMap[epicKey].tickets.push(t);
+      });
+
+      const sortedKeys = Object.keys(epicsMap).sort((a, b) => {
+        if (a === 'NO_EPIC') return 1;
+        if (b === 'NO_EPIC') return -1;
+        return a.localeCompare(b);
+      });
+
+      sortedKeys.forEach(epicKey => {
+        const epic = epicsMap[epicKey];
+        etcMd += epicKey === 'NO_EPIC'
+          ? `### 🏷️ ${epic.summary}\n`
+          : `### 🏷️ 에픽: ${epic.summary} (${epic.key})\n`;
+
+        epic.tickets.forEach(t => {
+          const cat = getStatusCategory(t.status);
+          const symbol = cat === 'Done' ? '✅' : cat === 'In Progress' ? '🔄' : '⏱️';
+          const formatted = TicketMarkdownRenderer.format(t, jiraUrl, {
+            showStatus: true,
+            showUpdate: true,
+            showAssignee: true,
+            dateFormat: 'MM/DD',
+          });
+          etcMd += `* ${symbol} ${formatted}\n`;
+        });
+        etcMd += `\n`;
+      });
+    }
+
+    if (etcNextList.length > 0) {
+      etcMd += `## 🚀 2. 다음 주 예정 기타 업무\n\n`;
+      const nextEpicsMap: Record<string, { key: string; summary: string; tickets: Ticket[] }> = {};
+      etcNextList.forEach(t => {
+        const epicKey = t.epic && t.epic.key ? t.epic.key : 'NO_EPIC';
+        const epicSummary = t.epic && t.epic.summary ? t.epic.summary : '에픽 없음 (기타 계획)';
+        if (!nextEpicsMap[epicKey]) {
+          nextEpicsMap[epicKey] = { key: epicKey, summary: epicSummary, tickets: [] };
+        }
+        nextEpicsMap[epicKey].tickets.push(t);
+      });
+
+      const nextSortedKeys = Object.keys(nextEpicsMap).sort((a, b) => {
+        if (a === 'NO_EPIC') return 1;
+        if (b === 'NO_EPIC') return -1;
+        return a.localeCompare(b);
+      });
+
+      nextSortedKeys.forEach(epicKey => {
+        const epic = nextEpicsMap[epicKey];
+        etcMd += epicKey === 'NO_EPIC'
+          ? `### 🏷️ ${epic.summary}\n`
+          : `### 🏷️ 에픽: ${epic.summary} (${epic.key})\n`;
+
+        epic.tickets.forEach(t => {
+          const cat = getStatusCategory(t.status);
+          const stateSymbol = cat === 'Done' ? '🟢 [완료예정]' : cat === 'In Progress' ? '🔄 [진행예정]' : '⏱️ [할일]';
+          const dueDate = t.duedate ? dayjs(t.duedate).format('MM/DD') : '일정 미산정';
+          const assigneeStr = t.assignee ? `, 담당자: ${t.assignee}` : '';
+          etcMd += `* ${stateSymbol} [${t.key}: ${escapeBrackets(t.summary)}](${getTicketLink(t.key, jiraUrl)}) (\`${t.status}\`, 기한: ${dueDate}${assigneeStr})\n`;
+        });
+        etcMd += `\n`;
+      });
+    }
+
+    return etcMd;
   }
 }
 
