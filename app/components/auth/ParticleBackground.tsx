@@ -5,13 +5,25 @@ import * as THREE from 'three';
 
 interface ParticleBackgroundProps {
   isFormRevealed: boolean;
+  isDispersing?: boolean;
 }
+
+// 스프링 형태 파라미터
+const PARTICLE_COUNT = 2400;
+const SPRING_STRANDS = 2; // 이중 나선
+const SPRING_TURNS = 6;
+const SPRING_RADIUS = 28;
+const SPRING_HEIGHT = 120;
+const TUBE_RADIUS = 2.4;
+const SATURATION_SCALE = 0.45; // 1.0 = 원본 채도
 
 export default function ParticleBackground({
   isFormRevealed,
+  isDispersing = false,
 }: ParticleBackgroundProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const isFormRevealedRef = useRef(isFormRevealed);
+  const isDispersingRef = useRef(isDispersing);
   const mouseRef = useRef({ x: 0, y: 0, targetX: 0, targetY: 0 });
 
   useEffect(() => {
@@ -19,10 +31,13 @@ export default function ParticleBackground({
   }, [isFormRevealed]);
 
   useEffect(() => {
+    isDispersingRef.current = isDispersing;
+  }, [isDispersing]);
+
+  useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    // 1. Three.js Setup (Front View Camera)
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(
       60,
@@ -30,7 +45,7 @@ export default function ParticleBackground({
       0.1,
       1000
     );
-    camera.position.set(0, 0, 32);
+    camera.position.set(0, 0, 38);
 
     const renderer = new THREE.WebGLRenderer({
       antialias: true,
@@ -41,12 +56,10 @@ export default function ParticleBackground({
     renderer.setSize(window.innerWidth, window.innerHeight);
     container.appendChild(renderer.domElement);
 
-    // Mouse Tracking
+    // Mouse Tracking (살짝 기울이는 패럴랙스용)
     const handleMouseMove = (e: MouseEvent) => {
-      const nx = (e.clientX / window.innerWidth) * 2 - 1;
-      const ny = -(e.clientY / window.innerHeight) * 2 + 1;
-      mouseRef.current.targetX = nx * 22;
-      mouseRef.current.targetY = ny * 16;
+      mouseRef.current.targetX = (e.clientX / window.innerWidth) * 2 - 1;
+      mouseRef.current.targetY = -(e.clientY / window.innerHeight) * 2 + 1;
     };
     window.addEventListener('mousemove', handleMouseMove);
 
@@ -68,22 +81,16 @@ export default function ParticleBackground({
     }
     const circleTexture = new THREE.CanvasTexture(canvas);
 
-    // 2. Cascading Slide Particle Data
-    const particleCount = 2400;
+    // Particle Data
     const geometry = new THREE.BufferGeometry();
-
-    const positions = new Float32Array(particleCount * 3);
-    const colors = new Float32Array(particleCount * 3);
-
-    // Slide physics arrays
-    const basePositionsX = new Float32Array(particleCount);
-    const slideSpeeds = new Float32Array(particleCount);
-    const slideAmplitudes = new Float32Array(particleCount);
-    const slideFrequencies = new Float32Array(particleCount);
-    const slidePhases = new Float32Array(particleCount);
+    const positions = new Float32Array(PARTICLE_COUNT * 3);
+    const colors = new Float32Array(PARTICLE_COUNT * 3);
+    const targets = new Float32Array(PARTICLE_COUNT * 3);
+    const delays = new Float32Array(PARTICLE_COUNT);
 
     const colorTemp = new THREE.Color();
-    const slidePalette = [
+    const hsl = { h: 0, s: 0, l: 0 };
+    const palette = [
       '#00f2fe',
       '#4facfe',
       '#8b5cf6',
@@ -93,34 +100,41 @@ export default function ParticleBackground({
       '#ffffff',
     ];
 
-    for (let i = 0; i < particleCount; i++) {
-      const baseX = (Math.random() - 0.5) * 65;
-      const initialY = (Math.random() - 0.5) * 50;
-      const zDepth = (Math.random() - 0.5) * 16;
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      const strand = i % SPRING_STRANDS;
+      const t = Math.random(); // 0~1 나선 진행도
+      const angle =
+        t * SPRING_TURNS * Math.PI * 2 +
+        (strand * Math.PI * 2) / SPRING_STRANDS;
+      const y = (t - 0.5) * SPRING_HEIGHT;
 
-      basePositionsX[i] = baseX;
-      slideSpeeds[i] = 0.08 + Math.random() * 0.16;
-      slideAmplitudes[i] = 1.5 + Math.random() * 3.5;
-      slideFrequencies[i] = 0.08 + Math.random() * 0.12;
-      slidePhases[i] = Math.random() * Math.PI * 2;
+      // 코일 중심선 + 튜브 두께 오프셋
+      const jitter = () => (Math.random() - 0.5) * 2 * TUBE_RADIUS;
+      targets[i * 3] = Math.cos(angle) * SPRING_RADIUS + jitter();
+      targets[i * 3 + 1] = y + jitter();
+      targets[i * 3 + 2] = Math.sin(angle) * SPRING_RADIUS + jitter();
 
-      positions[i * 3] = baseX;
-      positions[i * 3 + 1] = initialY;
-      positions[i * 3 + 2] = zDepth;
+      // 화면 전역에 흩어진 시작 위치
+      positions[i * 3] = (Math.random() - 0.5) * 80;
+      positions[i * 3 + 1] = (Math.random() - 0.5) * 60;
+      positions[i * 3 + 2] = (Math.random() - 0.5) * 50;
 
-      const hex = slidePalette[Math.floor(Math.random() * slidePalette.length)];
-      colorTemp.set(hex);
-      const alphaDepth = 0.4 + (zDepth + 8) / 16 * 0.6;
-      colors[i * 3] = colorTemp.r * alphaDepth;
-      colors[i * 3 + 1] = colorTemp.g * alphaDepth;
-      colors[i * 3 + 2] = colorTemp.b * alphaDepth;
+      delays[i] = Math.random() * 0.6;
+
+      colorTemp.set(palette[Math.floor(Math.random() * palette.length)]);
+      colorTemp.getHSL(hsl);
+      colorTemp.setHSL(hsl.h, hsl.s * SATURATION_SCALE, hsl.l);
+      const shade = 0.55 + t * 0.45;
+      colors[i * 3] = colorTemp.r * shade;
+      colors[i * 3 + 1] = colorTemp.g * shade;
+      colors[i * 3 + 2] = colorTemp.b * shade;
     }
 
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
     const material = new THREE.PointsMaterial({
-      size: 0.55,
+      size: 2.0,
       sizeAttenuation: true,
       vertexColors: true,
       map: circleTexture,
@@ -133,83 +147,97 @@ export default function ParticleBackground({
     const particles = new THREE.Points(geometry, material);
     scene.add(particles);
 
-    // 3. Slide Cascade Animation Loop
+    // Animation Loop
     let animationFrameId: number;
     const clock = new THREE.Clock();
-    let hoverFunnelFactor = 0;
-
+    let assemble = 0; // 0: 흩어짐 → 1: 스프링 완성
+    let spinSpeed = 0.2;
+    let orbitAngle = 0;
+    const CAMERA_ORBIT_RADIUS = 42;
+    const CAMERA_TRAVEL_HEIGHT = 24;
     const positionAttr = geometry.attributes.position as THREE.BufferAttribute;
+    const velocities = new Float32Array(PARTICLE_COUNT * 3);
+    let disperseProgress = 0;
+    let velocitiesReady = false;
+    const baseOpacity = material.opacity;
 
     const renderLoop = () => {
       animationFrameId = requestAnimationFrame(renderLoop);
 
-      const delta = clock.getDelta();
+      const delta = Math.min(clock.getDelta(), 0.05);
       const time = clock.getElapsedTime();
 
-      const isTargetActive = isFormRevealedRef.current;
+      assemble = Math.min(assemble + delta / 3.5, 1);
 
-      // Smooth funnel factor lerp when form is revealed
-      if (isTargetActive) {
-        hoverFunnelFactor += (1 - hoverFunnelFactor) * (delta * 3.5);
-      } else {
-        hoverFunnelFactor += (0 - hoverFunnelFactor) * (delta * 2.5);
-      }
+      // 폼이 열리면 회전 속도를 살짝 높임
+      const targetSpin = isFormRevealedRef.current ? 0.35 : 0.2;
+      spinSpeed += (targetSpin - spinSpeed) * delta * 2;
 
-      // Mouse Parallax & Smooth Deflection
-      mouseRef.current.x += (mouseRef.current.targetX - mouseRef.current.x) * 0.06;
-      mouseRef.current.y += (mouseRef.current.targetY - mouseRef.current.y) * 0.06;
+      mouseRef.current.x +=
+        (mouseRef.current.targetX - mouseRef.current.x) * 0.05;
+      mouseRef.current.y +=
+        (mouseRef.current.targetY - mouseRef.current.y) * 0.05;
 
-      const mouseX = mouseRef.current.x;
-      const mouseY = mouseRef.current.y;
-
-      particles.rotation.y = mouseX * 0.003;
+      // 파티클은 고정, 카메라가 스프링 주위를 공전하며 상하로 따라 이동
+      orbitAngle += delta * spinSpeed;
+      const camY =
+        Math.sin(orbitAngle * 0.6) * CAMERA_TRAVEL_HEIGHT +
+        mouseRef.current.y * 3;
+      camera.position.set(
+        Math.cos(orbitAngle) * CAMERA_ORBIT_RADIUS + mouseRef.current.x * 2,
+        camY,
+        Math.sin(orbitAngle) * CAMERA_ORBIT_RADIUS
+      );
+      camera.lookAt(0, camY * 0.3, 0);
 
       const posArray = positionAttr.array as Float32Array;
+      // 스프링이 숨쉬는 듯한 미세한 상하 파동
+      const breathe = Math.sin(time * 1.5) * 0.15;
 
-      // Slide speed multiplier during hover funneling
-      const speedMultiplier = 1 + hoverFunnelFactor * 0.6;
+      const dispersing = isDispersingRef.current;
 
-      for (let i = 0; i < particleCount; i++) {
-        const idx = i * 3;
-
-        let px = posArray[idx];
-        let py = posArray[idx + 1];
-        let pz = posArray[idx + 2];
-
-        // 1. Smooth Downward Slide Gravity Motion
-        py -= slideSpeeds[i] * speedMultiplier;
-
-        // 2. Front Slide Parabolic/Sinusoidal Curve Trajectory (S-curve Slide)
-        const baseX = basePositionsX[i];
-        const slideCurveX =
-          baseX + Math.sin(py * slideFrequencies[i] + slidePhases[i] + time * 1.2) * slideAmplitudes[i];
-
-        // 3. Hover Funneling: Particles smoothly converge toward login card stream
-        const funnelX = slideCurveX * (1 - hoverFunnelFactor * 0.5) + Math.sin(time * 3 + py * 0.15) * (1 - hoverFunnelFactor * 0.5);
-        px = THREE.MathUtils.lerp(slideCurveX, funnelX, hoverFunnelFactor);
-
-        // 4. Mouse Cursor Obstacle Deflection
-        const dx = px - mouseX;
-        const dy = py - mouseY;
-        const distSq = dx * dx + dy * dy;
-
-        if (distSq < 100) {
-          const dist = Math.sqrt(distSq) + 0.001;
-          const force = (1 - dist / 10) * 1.8;
-          const pushDirection = dx >= 0 ? 1 : -1;
-          px += pushDirection * force * 0.15;
-          py -= force * 0.05; // Slide friction slowdown near cursor
+      if (dispersing) {
+        // 현재 위치 기준 바깥 방향 + 랜덤 성분으로 흩어짐
+        if (!velocitiesReady) {
+          for (let i = 0; i < PARTICLE_COUNT; i++) {
+            const idx = i * 3;
+            const dir = new THREE.Vector3(
+              posArray[idx] + (Math.random() - 0.5) * 20,
+              posArray[idx + 1] + (Math.random() - 0.5) * 20,
+              posArray[idx + 2] + (Math.random() - 0.5) * 20
+            ).normalize();
+            const speed = 15 + Math.random() * 35;
+            velocities[idx] = dir.x * speed;
+            velocities[idx + 1] = dir.y * speed;
+            velocities[idx + 2] = dir.z * speed;
+          }
+          velocitiesReady = true;
         }
 
-        // 5. Seamless Loop Reset when sliding past bottom threshold
-        if (py < -26) {
-          py = 25 + Math.random() * 6;
-          px = basePositionsX[i];
+        disperseProgress = Math.min(disperseProgress + delta / 1.3, 1);
+        const accel = 0.4 + disperseProgress * 2.2;
+        for (let i = 0; i < PARTICLE_COUNT * 3; i++) {
+          posArray[i] += velocities[i] * delta * accel;
         }
+        material.opacity = baseOpacity * Math.pow(1 - disperseProgress, 1.5);
+      } else {
+        for (let i = 0; i < PARTICLE_COUNT; i++) {
+          const idx = i * 3;
+          const local = THREE.MathUtils.clamp(
+            (assemble - delays[i]) / (1 - 0.6),
+            0,
+            1
+          );
+          const ease = 1 - Math.pow(1 - local, 3);
+          const follow = 0.02 + ease * 0.1;
 
-        posArray[idx] = px;
-        posArray[idx + 1] = py;
-        posArray[idx + 2] = pz;
+          const wobble = Math.sin(time * 2 + i) * 0.04 * ease;
+
+          posArray[idx] += (targets[idx] - posArray[idx]) * follow;
+          posArray[idx + 1] +=
+            (targets[idx + 1] + breathe + wobble - posArray[idx + 1]) * follow;
+          posArray[idx + 2] += (targets[idx + 2] - posArray[idx + 2]) * follow;
+        }
       }
 
       positionAttr.needsUpdate = true;

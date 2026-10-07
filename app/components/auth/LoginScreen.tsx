@@ -8,12 +8,15 @@ interface LoginScreenProps {
   onLoginSuccess: () => void;
 }
 
+const EXIT_DURATION_MS = 1400;
+
 export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [isExiting, setIsExiting] = useState(false);
 
   // Particle reveal 5-click & title 3-click state
   const [clickCount, setClickCount] = useState(0);
@@ -81,7 +84,9 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         return;
       }
 
-      onLoginSuccess();
+      // 파티클이 흩어지는 연출 후 화면 전환
+      setIsExiting(true);
+      setTimeout(onLoginSuccess, EXIT_DURATION_MS);
     } catch (err) {
       console.error('로그인 에러:', err);
       setErrorMessage('서버와 통신하는 중 오류가 발생했습니다.');
@@ -90,9 +95,9 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   };
 
   return (
-    <div className={`login-screen-container ${isFormRevealed ? 'form-revealed' : 'initial-particles-mode'}`}>
+    <div className={`login-screen-container ${isFormRevealed ? 'form-revealed' : 'initial-particles-mode'} ${isExiting ? 'login-exiting' : ''}`}>
       {/* High-performance Three.js Particle Background */}
-      <ParticleBackground isFormRevealed={isFormRevealed} />
+      <ParticleBackground isFormRevealed={isFormRevealed} isDispersing={isExiting} />
 
       <div className="login-glow-bg"></div>
 

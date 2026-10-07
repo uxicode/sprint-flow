@@ -407,3 +407,25 @@
   padding-top: 0.5rem;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
+
+/* 로그인 성공 시 퇴장 연출 */
+.login-screen-container.login-exiting {
+  pointer-events: none;
+  animation: login-screen-fade-out 0.5s ease-in 0.9s forwards;
+}
+
+.login-screen-container.login-exiting .login-card {
+  opacity: 0;
+  transform: scale(0.96) translateY(-8px);
+  filter: blur(4px);
+  transition:
+    opacity 0.6s ease,
+    transform 0.6s ease,
+    filter 0.6s ease;
+}
+
+@keyframes login-screen-fade-out {
+  to {
+    opacity: 0;
+  }
+}
