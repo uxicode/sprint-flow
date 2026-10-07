@@ -806,5 +806,16 @@
     "color": "#3b82f6",
     "notes": "",
     "location": ""
+  },
+  {
+    "id": "todo-1791342798540-mqv9u",
+    "title": "솔라시도 주간업무 보고서",
+    "date": "2026-10-07",
+    "startHour": 14,
+    "endHour": 15,
+    "category": "할 일",
+    "color": "#3b82f6",
+    "notes": "",
+    "location": ""
   }
 ]
