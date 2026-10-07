@@ -46,7 +46,7 @@ function renderEpicSection(
       const dateStr = targetDate && targetDate.isValid() ? `${targetDate.month() + 1}/${targetDate.date()}` : '미산정';
 
       if (includeStatus) {
-        const cat = getStatusCategory(t.status);
+        const cat = getStatusCategory(t);
         const statusLabel = cat === 'Done' ? '완료' : cat === 'In Progress' ? '진행 중' : '대기 중';
         section += `    ${summary} (${statusLabel}- ${dateStr})\n`;
       } else {

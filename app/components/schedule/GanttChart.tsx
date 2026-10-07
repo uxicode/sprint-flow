@@ -11,7 +11,7 @@ import type { CSSProperties } from 'react';
 
 function buildOtherProgressBadge(tickets: Ticket[]): ProgressBadge | null {
   if (!tickets?.length) return null;
-  const doneCount = tickets.filter(t => getStatusCategory(t.status) === 'Done').length;
+  const doneCount = tickets.filter(t => getStatusCategory(t) === 'Done').length;
   const totalCount = tickets.length;
   return {
     label: 'ETC',

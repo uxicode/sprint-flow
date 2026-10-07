@@ -3,6 +3,7 @@ import type {
   JiraCredentials,
   JiraSearchIssue,
   JiraSearchResponse,
+  StatusCategory,
   Ticket,
 } from '../../types';
 
@@ -19,11 +20,19 @@ function normalizeJiraHost(url: string): string {
   return cleanUrl.replace(/\/$/, '');
 }
 
+function mapStatusCategory(key: string | undefined): StatusCategory | undefined {
+  if (key === 'done') return 'Done';
+  if (key === 'indeterminate') return 'In Progress';
+  if (key === 'new') return 'To Do';
+  return undefined;
+}
+
 function mapIssue(issue: JiraSearchIssue): Ticket {
   return {
     key: issue.key || '',
     summary: issue.fields?.summary || '제목 없음',
     status: issue.fields?.status ? (issue.fields.status.name || 'To Do') : 'To Do',
+    statusCategory: mapStatusCategory(issue.fields?.status?.statusCategory?.key),
     assignee: issue.fields?.assignee
       ? (issue.fields.assignee.displayName || issue.fields.assignee.name || '미지정')
       : '미지정',

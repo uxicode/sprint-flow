@@ -7,6 +7,7 @@ export interface Ticket {
   key: string;
   summary: string;
   status: string;
+  statusCategory?: StatusCategory;
   assignee: string;
   updated: string;
   created: string;
@@ -453,7 +454,7 @@ export interface TicketRenderGroupOptions {
 
 export interface JiraSearchIssueFields {
   summary?: string;
-  status?: { name?: string };
+  status?: { name?: string; statusCategory?: { key?: string } };
   assignee?: { displayName?: string; name?: string };
   updated?: string;
   created?: string;

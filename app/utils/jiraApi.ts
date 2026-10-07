@@ -3,8 +3,16 @@ import type {
   JiraSearchIssue,
   JiraSearchResponse,
   ProgressCallback,
+  StatusCategory,
   Ticket,
 } from '../types';
+
+function toStatusCategory(key: string | undefined): StatusCategory | undefined {
+  if (key === 'done') return 'Done';
+  if (key === 'indeterminate') return 'In Progress';
+  if (key === 'new') return 'To Do';
+  return undefined;
+}
 
 export async function fetchJiraTickets(
   jql: string,
@@ -84,6 +92,7 @@ export async function fetchJiraTickets(
     key: issue.key || '',
     summary: issue.fields?.summary || '제목 없음',
     status: issue.fields?.status ? (issue.fields.status.name || 'To Do') : 'To Do',
+    statusCategory: toStatusCategory(issue.fields?.status?.statusCategory?.key),
     assignee: issue.fields?.assignee
       ? (issue.fields.assignee.displayName || issue.fields.assignee.name || '미지정')
       : '미지정',

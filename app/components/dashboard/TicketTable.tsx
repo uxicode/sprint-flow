@@ -30,7 +30,7 @@ export default function TicketTable({ tickets }: TicketTableProps) {
               <tr key={idx}>
                 <td><strong>{ticket.key}</strong></td>
                 <td>{ticket.summary}</td>
-                <td><StatusBadge status={ticket.status} /></td>
+                <td><StatusBadge status={ticket.status} statusCategory={ticket.statusCategory} /></td>
                 <td>{ticket.assignee}</td>
                 <td>{ticket.updated}</td>
               </tr>

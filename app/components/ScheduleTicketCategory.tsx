@@ -31,7 +31,7 @@ export default function ScheduleTicketCategory({ label, tickets, jiraUrl, progre
             <span className="ticket-summary-text">{t.summary}</span>
             <div className="ticket-meta">
               <span className="assignee">👤 {t.assignee || '미지정'}</span>
-              <StatusTag status={t.status} />
+              <StatusTag status={t.status} statusCategory={t.statusCategory} />
             </div>
           </li>
         ))}

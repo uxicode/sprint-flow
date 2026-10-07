@@ -7,11 +7,11 @@ import type {
   AssigneePredictions,
   AssigneeSummaryRow,
   MonthlyPerformanceAnalysis,
-  StatusCategory,
   Ticket,
   TimeSeriesDataPoint,
   TrendTimeSeriesResult,
 } from '../types';
+import { getStatusCategory } from './jira';
 
 /**
  * 선택 기간 내 티켓만 남김 (updated 우선, 없으면 created)
@@ -64,8 +64,8 @@ export function analyzeMonthlyPerformance(tickets: Ticket[] | null | undefined):
     
     byMonth[month] = Object.keys(assigneeGroups).map(assignee => {
       const assigneeTickets = assigneeGroups[assignee];
-      const completed = assigneeTickets.filter(t => getStatusCategory(t.status) === 'Done').length;
-      const inProgress = assigneeTickets.filter(t => getStatusCategory(t.status) === 'In Progress').length;
+      const completed = assigneeTickets.filter(t => getStatusCategory(t) === 'Done').length;
+      const inProgress = assigneeTickets.filter(t => getStatusCategory(t) === 'In Progress').length;
       const todo = assigneeTickets.length - completed - inProgress;
       
       return {
@@ -83,8 +83,8 @@ export function analyzeMonthlyPerformance(tickets: Ticket[] | null | undefined):
   const byAssignee: Record<string, AssigneeOverallStats> = {};
   Object.keys(ticketsByAssignee).forEach(assignee => {
     const assigneeTickets = ticketsByAssignee[assignee];
-    const completed = assigneeTickets.filter(t => getStatusCategory(t.status) === 'Done').length;
-    const inProgress = assigneeTickets.filter(t => getStatusCategory(t.status) === 'In Progress').length;
+    const completed = assigneeTickets.filter(t => getStatusCategory(t) === 'Done').length;
+    const inProgress = assigneeTickets.filter(t => getStatusCategory(t) === 'In Progress').length;
     
     byAssignee[assignee] = {
       total: assigneeTickets.length,
@@ -155,7 +155,7 @@ export function generateDailyTimeSeriesData(
         return ticketDay === dayKey;
       });
 
-      const completed = assigneeTickets.filter(t => getStatusCategory(t.status) === 'Done').length;
+      const completed = assigneeTickets.filter(t => getStatusCategory(t) === 'Done').length;
       dataPoint[assignee] = completed;
       dataPoint.total += completed;
     });
@@ -217,7 +217,7 @@ export function generateTimeSeriesData(
         return ticketMonth === monthKey;
       });
 
-      const completed = assigneeTickets.filter(t => getStatusCategory(t.status) === 'Done').length;
+      const completed = assigneeTickets.filter(t => getStatusCategory(t) === 'Done').length;
       dataPoint[assignee] = completed;
       dataPoint.total += completed;
     });
@@ -276,7 +276,7 @@ export function predictNextMonth(tickets: Ticket[] | null | undefined): Assignee
 
   Object.keys(byAssignee).forEach(assignee => {
     const assigneeTickets = byAssignee[assignee];
-    const completedTickets = assigneeTickets.filter(t => getStatusCategory(t.status) === 'Done');
+    const completedTickets = assigneeTickets.filter(t => getStatusCategory(t) === 'Done');
     
     // 3개월 평균
     const avgPerMonth = Math.round(completedTickets.length / 3);
@@ -454,19 +454,8 @@ export function generateCSV(summary: AssigneeSummaryRow[] | null | undefined): s
 // 헬퍼 함수
 // ============================================================================
 
-function getStatusCategory(statusName: string): StatusCategory {
-  const status = (statusName || '').toLowerCase().trim();
-  if (status.includes('done') || status.includes('resolved') || status.includes('완료') || status.includes('closed') || status.includes('성공')) {
-    return 'Done';
-  }
-  if (status.includes('progress') || status.includes('진행') || status.includes('doing') || status.includes('개발') || status.includes('selected') || status.includes('working')) {
-    return 'In Progress';
-  }
-  return 'To Do';
-}
-
 function calculateAvgCompletionTime(tickets: Ticket[]): string | null {
-  const completedTickets = tickets.filter(t => getStatusCategory(t.status) === 'Done' && t.updated);
+  const completedTickets = tickets.filter(t => getStatusCategory(t) === 'Done' && t.updated);
   
   if (completedTickets.length === 0) return null;
 

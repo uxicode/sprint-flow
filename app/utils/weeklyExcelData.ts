@@ -8,8 +8,8 @@ const AREA_LABEL: Record<string, string> = {
   수집데이터: '수집서버',
 };
 
-function statusLabel(status: string): string {
-  const category = getStatusCategory(status);
+function statusLabel(ticket: Ticket): string {
+  const category = getStatusCategory(ticket);
   if (category === 'Done') return '완료';
   if (category === 'In Progress') return '진행 중';
   return '대기 중';
@@ -48,7 +48,7 @@ function buildGroupedReportText(tickets: Ticket[]): string {
       .replace(/^솔라시도\s*(앱)?\s*>?\s*/i, '')
       .replace(/^솔라시도\s*/, '')
       .trim() || rest || epicTitle;
-    const line = `- ${feature}: ${cleanTicketSummary(ticket.summary) || ticket.summary} (${statusLabel(ticket.status)})`;
+    const line = `- ${feature}: ${cleanTicketSummary(ticket.summary) || ticket.summary} (${statusLabel(ticket)})`;
 
     if (!groups.has(groupKey)) groups.set(groupKey, new Map());
     const featureMap = groups.get(groupKey)!;

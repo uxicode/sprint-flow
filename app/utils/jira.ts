@@ -41,7 +41,14 @@ export const getLocalDateStr = (dateObj: CalendarDateField | null | undefined): 
 };
 
 // Jira 티켓의 상태 카테고리를 Normalization 처리하는 유틸리티
-export const getStatusCategory = (statusName: string): StatusCategory => {
+// 티켓 객체가 전달되면 Jira statusCategory(티켓 기준)를 우선 사용하고, 없을 때만 상태명으로 추정
+export const getStatusCategory = (
+  input: string | Pick<Ticket, 'status' | 'statusCategory'>,
+): StatusCategory => {
+  if (typeof input !== 'string' && input.statusCategory) {
+    return input.statusCategory;
+  }
+  const statusName = typeof input === 'string' ? input : input.status;
   const status = (statusName || '').toLowerCase().trim();
   if (status.includes('done') || status.includes('resolved') || status.includes('완료') || status.includes('closed') || status.includes('성공')) {
     return 'Done';
@@ -326,7 +333,7 @@ export const TicketMarkdownRenderer = {
       dateFormat = 'YYYY.MM.DD',
     }: TicketRenderGroupOptions,
   ): string {
-    const filtered = tickets.filter(t => getStatusCategory(t.status) === category);
+    const filtered = tickets.filter(t => getStatusCategory(t) === category);
     let md = `${title}\n`;
     if (filtered.length === 0) {
       md += `${bullet}${emptyMessage}\n`;
@@ -341,8 +348,21 @@ export const TicketMarkdownRenderer = {
   }
 };
 
-// 에픽이 '모니터링 중', '미합의 요구사항'이거나 에픽이 없는 티켓인지 판별
+// QSTF 프로젝트: 일정 미산정이거나 '고객배포 완료' 외 상태인 티켓은 기타 업무로 분리
+const QSTF_PROJECT_PREFIX = 'QSTF-';
+const QSTF_STANDARD_STATUS = '고객배포 완료';
+
+function isQstfOtherTicket(ticket: Ticket): boolean {
+  if (!(ticket.key || '').startsWith(QSTF_PROJECT_PREFIX)) return false;
+  if (!ticket.duedate) return true;
+  return (ticket.status || '').replace(/\s+/g, '') !== QSTF_STANDARD_STATUS.replace(/\s+/g, '');
+}
+
+// 에픽이 '모니터링 중', '미합의 요구사항'이거나 에픽이 없는 티켓, QSTF 예외 티켓인지 판별
 export function isOtherEpicTicket(ticket: Ticket): boolean {
+  if (isQstfOtherTicket(ticket)) {
+    return true;
+  }
   if (!ticket.epic || !ticket.epic.key || ticket.epic.key === 'NO_EPIC') {
     return true;
   }
@@ -380,7 +400,7 @@ export class DailyReportStrategy extends ReportStrategy {
     // (단, '모니터링 중', '미합의 요구사항', '에픽 없음' 티켓은 기타 업무로 분리되어 제외)
     const dailyTickets = currList.filter(t => {
       if (isOtherEpicTicket(t)) return false;
-      if (getStatusCategory(t.status) === 'In Progress') return true;
+      if (getStatusCategory(t) === 'In Progress') return true;
       if (!t.duedate) return true;
       return t.updated === todayStr || t.duedate === todayStr;
     });
@@ -440,7 +460,7 @@ export class DailyReportStrategy extends ReportStrategy {
         dailyMd += `\n`;
 
         // 대기 및 예정 업무 (To Do) 목록 렌더링 (일정 미산정 또는 오늘 예정 티켓)
-        const todoTickets = memberTickets.filter(t => getStatusCategory(t.status) === 'To Do');
+        const todoTickets = memberTickets.filter(t => getStatusCategory(t) === 'To Do');
         if (todoTickets.length > 0) {
           dailyMd += TicketMarkdownRenderer.renderGroup(memberTickets, jiraUrl, {
             category: 'To Do',
@@ -482,8 +502,8 @@ export class WeeklyReportStrategy extends ReportStrategy {
     });
 
     const total = filteredCurrList.length;
-    const completedCount = filteredCurrList.filter(t => getStatusCategory(t.status) === 'Done').length;
-    const progressingCount = filteredCurrList.filter(t => getStatusCategory(t.status) === 'In Progress').length;
+    const completedCount = filteredCurrList.filter(t => getStatusCategory(t) === 'Done').length;
+    const progressingCount = filteredCurrList.filter(t => getStatusCategory(t) === 'In Progress').length;
     const todoCount = total - completedCount - progressingCount;
 
     const displayStart = dayjs(start).format('YYYY.MM.DD');
@@ -547,7 +567,7 @@ export class WeeklyReportStrategy extends ReportStrategy {
             : `### 🏷️ 에픽: ${epic.summary} (${epic.key})\n`;
 
           activeTickets.forEach(t => {
-            const cat = getStatusCategory(t.status);
+            const cat = getStatusCategory(t);
             const symbol = cat === 'Done' ? '✅' : cat === 'In Progress' ? '🔄' : '⏱️';
             const formatted = TicketMarkdownRenderer.format(t, jiraUrl, {
               showStatus: true,
@@ -601,7 +621,7 @@ export class WeeklyReportStrategy extends ReportStrategy {
           : `### 🏷️ 에픽: ${epic.summary} (${epic.key})\n`;
 
         epic.tickets.forEach(t => {
-          const cat = getStatusCategory(t.status);
+          const cat = getStatusCategory(t);
           const stateSymbol = cat === 'Done' ? '🟢 [완료예정]' : cat === 'In Progress' ? '🔄 [진행예정]' : '⏱️ [할일]';
           const dueDate = t.duedate ? dayjs(t.duedate).format('MM/DD') : '일정 미산정';
           const assigneeStr = t.assignee ? `, 담당자: ${t.assignee}` : '';
@@ -623,8 +643,8 @@ export class EtcReportStrategy extends ReportStrategy {
     const etcNextList = nextList.filter(t => isOtherEpicTicket(t));
 
     const total = etcCurrList.length;
-    const completedCount = etcCurrList.filter(t => getStatusCategory(t.status) === 'Done').length;
-    const progressingCount = etcCurrList.filter(t => getStatusCategory(t.status) === 'In Progress').length;
+    const completedCount = etcCurrList.filter(t => getStatusCategory(t) === 'Done').length;
+    const progressingCount = etcCurrList.filter(t => getStatusCategory(t) === 'In Progress').length;
     const todoCount = total - completedCount - progressingCount;
 
     const displayStart = dayjs(start).format('YYYY.MM.DD');
@@ -671,7 +691,7 @@ export class EtcReportStrategy extends ReportStrategy {
           : `### 🏷️ 에픽: ${epic.summary} (${epic.key})\n`;
 
         epic.tickets.forEach(t => {
-          const cat = getStatusCategory(t.status);
+          const cat = getStatusCategory(t);
           const symbol = cat === 'Done' ? '✅' : cat === 'In Progress' ? '🔄' : '⏱️';
           const formatted = TicketMarkdownRenderer.format(t, jiraUrl, {
             showStatus: true,
@@ -710,7 +730,7 @@ export class EtcReportStrategy extends ReportStrategy {
           : `### 🏷️ 에픽: ${epic.summary} (${epic.key})\n`;
 
         epic.tickets.forEach(t => {
-          const cat = getStatusCategory(t.status);
+          const cat = getStatusCategory(t);
           const stateSymbol = cat === 'Done' ? '🟢 [완료예정]' : cat === 'In Progress' ? '🔄 [진행예정]' : '⏱️ [할일]';
           const dueDate = t.duedate ? dayjs(t.duedate).format('MM/DD') : '일정 미산정';
           const assigneeStr = t.assignee ? `, 담당자: ${t.assignee}` : '';

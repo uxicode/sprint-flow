@@ -20,7 +20,7 @@ export function sortEpicScheduleData(
 
   const getOverallProgress = (item: EpicScheduleItem): number => {
     if (!item.tickets || item.tickets.length === 0) return 0;
-    const doneCount = item.tickets.filter(t => getStatusCategory(t.status) === 'Done').length;
+    const doneCount = item.tickets.filter(t => getStatusCategory(t) === 'Done').length;
     return Math.round((doneCount / item.tickets.length) * 100);
   };
 
@@ -102,7 +102,7 @@ export function buildEpicScheduleData(
 
     const getProgress = (group: Ticket[]): number | null => {
       if (group.length === 0) return null;
-      const doneCount = group.filter(t => getStatusCategory(t.status) === 'Done').length;
+      const doneCount = group.filter(t => getStatusCategory(t) === 'Done').length;
       return Math.round((doneCount / group.length) * 100);
     };
 
@@ -125,9 +125,9 @@ export function buildEpicScheduleData(
       beCount: beTickets.length,
       feCount: feTickets.length,
       moCount: moTickets.length,
-      beDoneCount: beTickets.filter(t => getStatusCategory(t.status) === 'Done').length,
-      feDoneCount: feTickets.filter(t => getStatusCategory(t.status) === 'Done').length,
-      moDoneCount: moTickets.filter(t => getStatusCategory(t.status) === 'Done').length,
+      beDoneCount: beTickets.filter(t => getStatusCategory(t) === 'Done').length,
+      feDoneCount: feTickets.filter(t => getStatusCategory(t) === 'Done').length,
+      moDoneCount: moTickets.filter(t => getStatusCategory(t) === 'Done').length,
       categorizedTickets: {
         BE: beTickets,
         FE: feTickets,
@@ -236,7 +236,7 @@ export function buildEpicSummaryTable(
     const moStr = cleanCell(formatGroupProgressBadge('MO', item.moProgress, item.moDoneCount, item.moCount));
 
     const totalCount = item.tickets.length;
-    const totalDone = item.tickets.filter(t => getStatusCategory(t.status) === 'Done').length;
+    const totalDone = item.tickets.filter(t => getStatusCategory(t) === 'Done').length;
     const totalProgress = totalCount > 0 ? Math.round((totalDone / totalCount) * 100) : 0;
     const totalStr = cleanCell(totalCount > 0 ? `${totalProgress}% (${totalDone}/${totalCount})` : '-');
 
