@@ -850,5 +850,16 @@
     "color": "#3b82f6",
     "notes": "",
     "location": ""
+  },
+  {
+    "id": "todo-1791449334628-qc9yc",
+    "title": "오토테스트 작업",
+    "date": "2026-10-08",
+    "startHour": 16,
+    "endHour": 18,
+    "category": "할 일",
+    "color": "#3b82f6",
+    "notes": "",
+    "location": ""
   }
 ]
