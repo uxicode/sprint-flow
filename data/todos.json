@@ -861,5 +861,16 @@
     "color": "#3b82f6",
     "notes": "",
     "location": ""
+  },
+  {
+    "id": "todo-1791449364670-7cvo6",
+    "title": "9월 지출결의서 작성",
+    "date": "2026-10-08",
+    "startHour": 13.5,
+    "endHour": 14,
+    "category": "할 일",
+    "color": "#3b82f6",
+    "notes": "",
+    "location": ""
   }
 ]
