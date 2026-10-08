@@ -783,7 +783,8 @@
     "category": "할 일",
     "color": "#3b82f6",
     "notes": "",
-    "location": ""
+    "location": "",
+    "completed": true
   },
   {
     "id": "todo-1790831218565-e95qd",
