@@ -838,7 +838,8 @@
     "category": "일정",
     "color": "#0d9488",
     "notes": "",
-    "location": ""
+    "location": "",
+    "completed": true
   },
   {
     "id": "todo-1791449301115-vs6e7",
