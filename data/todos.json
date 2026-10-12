@@ -876,5 +876,16 @@
     "notes": "",
     "location": "",
     "completed": true
+  },
+  {
+    "id": "todo-1791790370199-lntjm",
+    "title": "개발본부 주간회의",
+    "date": "2026-10-12",
+    "startHour": 10,
+    "endHour": 11.5,
+    "category": "일정",
+    "color": "#0d9488",
+    "notes": "",
+    "location": ""
   }
 ]
