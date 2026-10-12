@@ -18,10 +18,10 @@ const SWIRL_STRANDS = 3;   // 3가닥 층류 소용돌이
 const SWIRL_TURNS = 3.6;   // 3.6회전으로 상하 화면을 꽉 채우는 다층 소용돌이
 const SWIRL_RADIUS = 30.4; // 기존 대비 95%로 조율된 가로 타원형 반경 (32 * 0.95)
 const SWIRL_HEIGHT = 64;   // 위아래 빈 공간 없이 화면 전체를 꽉 채우는 대형 수직 스케일
-const TUBE_RADIUS = 2.4;   // 개별 라인 궤적 볼륨 두께
+const TUBE_RADIUS = 4.4;   // 개별 라인 궤적 볼륨 두께
 const CAMERA_ORBIT_RADIUS = 50;
 const CAMERA_TRAVEL_HEIGHT = 8;  // 화면 중심에서 상하 전체를 꽉 차게 조망
-const CAMERA_FOV = 52;
+const CAMERA_FOV = 62;
 
 const POINT_VERTEX_SHADER = `
   attribute vec3 aColor;
