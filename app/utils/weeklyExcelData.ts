@@ -35,7 +35,42 @@ function formatDateRangeLabel(start: string, end: string): string {
   return `${startLabel}~${endLabel}`;
 }
 
-function buildGroupedReportText(tickets: Ticket[]): string {
+function isQaTicket(ticket: Ticket): boolean {
+  return /\bQA\b/i.test(`${ticket.epic?.summary || ''} ${ticket.summary || ''}`);
+}
+
+function resolveQaArea(ticket: Ticket): string {
+  const { tag, rest } = parseEpicTitle(ticket.epic?.summary || '');
+  const fromEpic = rest
+    .replace(/QA/gi, '')
+    .replace(/솔라시도/g, '')
+    .replace(/[>:]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return fromEpic || AREA_LABEL[tag] || tag || '기타';
+}
+
+function buildQaSummaryLine(tickets: Ticket[]): string {
+  const counts = new Map<string, Map<string, number>>();
+  tickets.forEach((ticket) => {
+    const area = resolveQaArea(ticket);
+    const label = statusLabel(ticket);
+    const byStatus = counts.get(area) || new Map<string, number>();
+    byStatus.set(label, (byStatus.get(label) || 0) + 1);
+    counts.set(area, byStatus);
+  });
+
+  const parts: string[] = [];
+  counts.forEach((byStatus, area) => {
+    const statuses = Array.from(byStatus, ([label, count]) => `${count}건(${label})`).join(', ');
+    parts.push(`${area} QA ${statuses}`);
+  });
+  return `[솔라시도 QA]  ${parts.join(', ')}`;
+}
+
+function buildGroupedReportText(allTickets: Ticket[]): string {
+  const qaTickets = allTickets.filter(isQaTicket);
+  const tickets = allTickets.filter((ticket) => !isQaTicket(ticket));
   const groups = new Map<string, Map<string, string[]>>();
 
   tickets.forEach((ticket) => {
@@ -64,6 +99,8 @@ function buildGroupedReportText(tickets: Ticket[]): string {
       lines.forEach((line) => blocks.push(line));
     });
   });
+
+  if (qaTickets.length > 0) blocks.push(buildQaSummaryLine(qaTickets));
 
   return blocks.join('\n');
 }
