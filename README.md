@@ -129,6 +129,13 @@ GOOGLE_CLIENT_SECRET=GOCSPX-...
 GOOGLE_REFRESH_TOKEN=1//...
 GOOGLE_ACCESS_TOKEN=
 
+# 엑셀 업로드 시 구글 시트 '개발 현황' 동기화 (선택, 서비스 계정 + 시트 편집자 공유 필요)
+GOOGLE_SERVICE_ACCOUNT_EMAIL=xxx@your-project.iam.gserviceaccount.com
+GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+GOOGLE_SHEET_ID=스프레드시트-ID
+GOOGLE_SHEET_GID=시트-탭-gid
+GOOGLE_SHEET_START_CELL=C8  # (선택) 기재 시작 열 / 최소 시작 행
+
 # 시간대 설정
 CRON_TIMEZONE=Asia/Seoul
 ```

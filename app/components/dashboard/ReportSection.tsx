@@ -83,6 +83,7 @@ export default function ReportSection() {
     isUpdatingExcel,
   } = useReportActions();
   const excelFileInputRef = useRef<HTMLInputElement>(null);
+  const [syncSheet, setSyncSheet] = useState(false);
 
   // 저장 (상태 변경 시)
   const handleKeywordChange = (value: string) => {
@@ -291,7 +292,7 @@ export default function ReportSection() {
                     aria-label="주간 업무 엑셀 문서 선택"
                     onChange={(e) => {
                       const file = e.target.files?.[0];
-                      if (file) handleUpdateWeeklyExcel(file);
+                      if (file) handleUpdateWeeklyExcel(file, syncSheet);
                       e.target.value = '';
                     }}
                   />
@@ -303,6 +304,15 @@ export default function ReportSection() {
                   >
                     엑셀 업로드
                   </button>
+                  <label className="weekly-excel-sync-option">
+                    <input
+                      type="checkbox"
+                      checked={syncSheet}
+                      disabled={isDownloading || isUpdatingExcel}
+                      onChange={(e) => setSyncSheet(e.target.checked)}
+                    />
+                    <span>구글 시트에 개발 현황 동기화</span>
+                  </label>
                 </div>
 
                 {/* 태그 칩(Chip) 필터 영역 */}

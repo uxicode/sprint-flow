@@ -161,7 +161,7 @@ export function useReportActions() {
     URL.revokeObjectURL(blobUrl);
   };
 
-  const handleUpdateWeeklyExcel = async (file: File): Promise<void> => {
+  const handleUpdateWeeklyExcel = async (file: File, syncSheet = false): Promise<void> => {
     if (isDownloading || isUpdatingExcel) return;
     if (!tickets.length && !nextTickets.length) {
       alert('업데이트할 주간 업무 데이터가 없습니다. 먼저 티켓을 조회해 주세요.');
@@ -179,6 +179,7 @@ export function useReportActions() {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('payload', JSON.stringify(payload));
+      formData.append('syncSheet', String(syncSheet));
 
       const response = await fetch('/api/weekly-excel', {
         method: 'POST',
@@ -200,6 +201,9 @@ export function useReportActions() {
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(blobUrl);
+
+      const syncResult = response.headers.get('X-Sheet-Sync');
+      if (syncResult) alert(`[구글 시트 동기화]\n\n${decodeURIComponent(syncResult)}`);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       alert(`[엑셀 업데이트 실패]\n\n${message}`);

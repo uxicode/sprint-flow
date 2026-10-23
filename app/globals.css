@@ -4445,3 +4445,10 @@ select.select-input:focus {
   color: #34d399;
   font-weight: 800;
 }
+.weekly-excel-sync-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}

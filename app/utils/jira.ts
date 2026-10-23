@@ -348,13 +348,14 @@ export const TicketMarkdownRenderer = {
   }
 };
 
-// QSTF 프로젝트: 일정 미산정이거나 '고객배포 완료' 외 상태인 티켓은 기타 업무로 분리
+// QSTF 프로젝트: '고객배포 완료' 외 상태인 티켓은 기타 업무로 분리
+// 고객배포 완료 티켓은 기한을 비워 둔 채 닫히는 경우가 대부분이라 기한 유무로 거르지 않는다.
+// (기한 없는 완료 티켓은 JQL 에서 보고 기간 안에 갱신된 것만 조회된다)
 const QSTF_PROJECT_PREFIX = 'QSTF-';
 const QSTF_STANDARD_STATUS = '고객배포 완료';
 
 function isQstfOtherTicket(ticket: Ticket): boolean {
   if (!(ticket.key || '').startsWith(QSTF_PROJECT_PREFIX)) return false;
-  if (!ticket.duedate) return true;
   return (ticket.status || '').replace(/\s+/g, '') !== QSTF_STANDARD_STATUS.replace(/\s+/g, '');
 }
 
